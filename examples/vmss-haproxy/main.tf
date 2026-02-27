@@ -1,17 +1,16 @@
 # =============================================================================
-# Complete Example: Databricks Serverless to Confluent Cloud via Private Link
+# Example: VMSS HAProxy transit architecture
 # =============================================================================
 #
-# This example creates the complete transit architecture for private
-# connectivity from Databricks Serverless Compute to Confluent Cloud Kafka.
-#
-# Components:
-#   - Azure Transit VNet with subnets
+# This example creates the transit architecture using:
+#   - Azure Standard Load Balancer + VMSS with HAProxy
+#   - Private Link Service (PLS) for Databricks NCC connectivity
 #   - Private Endpoint to Confluent Cloud
-#   - Azure Standard Load Balancer
-#   - Private Link Service
 #   - Databricks NCC with Private Endpoint Rule
-#   - Private DNS Zone (for classic compute)
+#   - Private DNS Zone (optional, for classic compute)
+#
+# Architecture:
+#   Databricks Serverless -> NCC PE -> PLS -> LB -> VMSS HAProxy -> Confluent PE -> Kafka
 #
 # =============================================================================
 
@@ -28,14 +27,6 @@ terraform {
       version = "~> 1.50"
     }
   }
-
-  # Uncomment to use remote state
-  # backend "azurerm" {
-  #   resource_group_name  = "rg-terraform-state"
-  #   storage_account_name = "tfstate"
-  #   container_name       = "tfstate"
-  #   key                  = "confluent-privatelink.tfstate"
-  # }
 }
 
 # =============================================================================
@@ -44,27 +35,16 @@ terraform {
 
 provider "azurerm" {
   features {}
-
-  # Uncomment if using service principal
-  # subscription_id = var.azure_subscription_id
-  # tenant_id       = var.azure_tenant_id
-  # client_id       = var.azure_client_id
-  # client_secret   = var.azure_client_secret
 }
 
-# Account-level Databricks provider for NCC resources
 provider "databricks" {
   alias      = "account"
   host       = "https://accounts.azuredatabricks.net"
   account_id = var.databricks_account_id
-
-  # Auth via environment variables:
-  # ARM_CLIENT_ID, ARM_CLIENT_SECRET, ARM_TENANT_ID
-  # or explicit attributes below
 }
 
 # =============================================================================
-# Resource Group
+# Resource group
 # =============================================================================
 
 resource "azurerm_resource_group" "confluent" {
@@ -74,33 +54,38 @@ resource "azurerm_resource_group" "confluent" {
 }
 
 # =============================================================================
-# Transit Infrastructure (Load Balancer, Private Link Service)
+# Transit infrastructure (LB + VMSS HAProxy + PLS)
 # =============================================================================
 
 module "confluent_transit" {
-  source = "../../modules/confluent-transit-slb"
+  source = "../../modules/vmss-haproxy-transit"
 
   resource_group_name                  = azurerm_resource_group.confluent.name
   location                             = var.location
   confluent_private_link_service_alias = var.confluent_private_link_service_alias
 
-  # Network configuration
-  create_vnet              = true
-  vnet_name                = "vnet-confluent-transit"
-  vnet_address_space       = var.vnet_address_space
-  lb_subnet_address_prefix = var.lb_subnet_address_prefix
-  pe_subnet_address_prefix = var.pe_subnet_address_prefix
+  # Network
+  create_vnet                = true
+  vnet_name                  = "vnet-confluent-transit"
+  vnet_address_space         = var.vnet_address_space
+  lb_subnet_address_prefix   = var.lb_subnet_address_prefix
+  pe_subnet_address_prefix   = var.pe_subnet_address_prefix
+  vmss_subnet_address_prefix = var.vmss_subnet_address_prefix
 
   # Load Balancer
   lb_name        = "lb-confluent"
   lb_frontend_ip = var.lb_frontend_ip
-  kafka_ports    = var.kafka_ports
+  kafka_port     = var.kafka_port
 
-  # Private Link Service
-  pls_name         = "pls-confluent"
-  pls_nat_ip_count = 1
+  # VMSS
+  vmss_name                 = "vmss-haproxy"
+  vmss_sku                  = var.vmss_sku
+  vmss_instances            = var.vmss_instances
+  vmss_admin_ssh_public_key = var.vmss_admin_ssh_public_key
 
-  # Auto-approve from Databricks subscription (optional)
+  # PLS
+  pls_name                           = "pls-confluent"
+  pls_nat_ip_count                   = 1
   pls_auto_approval_subscription_ids = var.auto_approve_subscription_ids
 
   tags = var.tags
@@ -109,7 +94,7 @@ module "confluent_transit" {
 }
 
 # =============================================================================
-# Databricks NCC Configuration
+# Databricks NCC configuration
 # =============================================================================
 
 module "databricks_ncc" {
@@ -119,23 +104,24 @@ module "databricks_ncc" {
     databricks = databricks.account
   }
 
-  ncc_name                = "ncc-confluent-${var.location}"
-  region                  = var.location
-  private_link_service_id = module.confluent_transit.pls_id
-  confluent_cluster_id    = var.confluent_cluster_id
-  confluent_region        = var.confluent_region
-  workspace_ids           = var.databricks_workspace_ids
+  ncc_name             = "ncc-confluent-${var.location}"
+  region               = var.location
+  transit_mode         = "pls"
+  transit_resource_id  = module.confluent_transit.pls_id
+  confluent_cluster_id = var.confluent_cluster_id
+  confluent_region     = var.confluent_region
+  workspace_ids        = var.databricks_workspace_ids
 
-  # For PE approval automation
-  pls_resource_group_name = azurerm_resource_group.confluent.name
-  pls_name                = module.confluent_transit.pls_name
-  auto_approve_pe         = var.auto_approve_databricks_pe
+  # For PE approval
+  transit_resource_group_name = azurerm_resource_group.confluent.name
+  transit_resource_name       = module.confluent_transit.pls_name
+  auto_approve_pe             = var.auto_approve_databricks_pe
 
   depends_on = [module.confluent_transit]
 }
 
 # =============================================================================
-# Private DNS Zone (Optional - for classic compute)
+# Private DNS Zone (optional - for classic compute)
 # =============================================================================
 
 module "confluent_dns" {

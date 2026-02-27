@@ -1,5 +1,5 @@
 # =============================================================================
-# Transit Infrastructure Outputs
+# Transit infrastructure outputs
 # =============================================================================
 
 output "vnet_id" {
@@ -22,13 +22,18 @@ output "pls_alias" {
   value       = module.confluent_transit.pls_alias
 }
 
+output "vmss_id" {
+  description = "VMSS resource ID"
+  value       = module.confluent_transit.vmss_id
+}
+
 output "confluent_pe_ip" {
   description = "Confluent Private Endpoint IP"
   value       = module.confluent_transit.confluent_pe_ip
 }
 
 # =============================================================================
-# Databricks NCC Outputs
+# Databricks NCC outputs
 # =============================================================================
 
 output "ncc_id" {
@@ -52,7 +57,7 @@ output "workspace_bindings" {
 }
 
 # =============================================================================
-# Kafka Connection
+# Kafka connection
 # =============================================================================
 
 output "kafka_bootstrap_servers" {
@@ -66,63 +71,10 @@ output "spark_kafka_options" {
 }
 
 # =============================================================================
-# DNS Outputs (if enabled)
+# DNS outputs (if enabled)
 # =============================================================================
 
 output "dns_zone_id" {
   description = "Private DNS Zone ID (if enabled)"
   value       = var.enable_dns_zone ? module.confluent_dns[0].dns_zone_id : null
-}
-
-output "dns_zone_name" {
-  description = "Private DNS Zone name (if enabled)"
-  value       = var.enable_dns_zone ? module.confluent_dns[0].dns_zone_name : null
-}
-
-# =============================================================================
-# Next Steps
-# =============================================================================
-
-output "next_steps" {
-  description = "Manual steps required after Terraform apply"
-  value       = <<-EOT
-
-    ============================================================
-    NEXT STEPS - Complete these manual actions:
-    ============================================================
-
-    1. APPROVE CONFLUENT PE CONNECTION
-       - Go to Confluent Cloud Console
-       - Navigate to: Cluster -> Settings -> Networking -> Private Link
-       - Find pending connection from: ${module.confluent_transit.confluent_pe_name}
-       - Click "Approve"
-
-    2. VERIFY NCC STATUS
-       - Go to Databricks Account Console
-       - Navigate to: Security -> Network Connectivity Configurations
-       - Select: ${module.databricks_ncc.ncc_name}
-       - Verify PE rule status is "ESTABLISHED"
-
-    3. TEST KAFKA CONNECTIVITY
-       Run this in a serverless notebook:
-
-       ```python
-       df = spark.read \
-         .format("kafka") \
-         .option("kafka.bootstrap.servers", "${module.databricks_ncc.kafka_bootstrap_servers}") \
-         .option("subscribe", "your-topic-name") \
-         .option("kafka.security.protocol", "SASL_SSL") \
-         .option("kafka.sasl.mechanism", "PLAIN") \
-         .option("kafka.sasl.jaas.config",
-                 "org.apache.kafka.common.security.plain.PlainLoginModule required " +
-                 "username='<YOUR_API_KEY>' password='<YOUR_API_SECRET>';") \
-         .option("startingOffsets", "earliest") \
-         .option("maxOffsetsPerTrigger", 100) \
-         .load()
-
-       display(df.selectExpr("CAST(key AS STRING)", "CAST(value AS STRING)"))
-       ```
-
-    ============================================================
-  EOT
 }

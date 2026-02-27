@@ -2,72 +2,99 @@
 
 This repository provides Terraform modules to establish private connectivity from **Databricks Serverless Compute** to **Confluent Cloud Kafka** on Azure using a transit architecture with Azure Private Link.
 
-## Architecture
+## Why a transit architecture?
+
+Databricks Serverless Compute connects to external services via **NCC Private Endpoint Rules**. These rules target either a **Private Link Service (PLS)** or an **Application Gateway v2** in your subscription. Since Confluent Cloud is a SaaS service reachable only via Private Endpoint, we need a transit layer between the NCC PE and the Confluent PE.
+
+This repo provides **two transit architecture options** - pick the one that fits your needs.
+
+## Architecture options
+
+### Option A: Application Gateway v2 with TCP proxy
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                     Databricks Serverless Compute Plane                         │
-│                         (Databricks-managed)                                    │
-│   ┌─────────────────────┐                                                       │
-│   │  Spark Streaming    │                                                       │
-│   │  Job / Notebook     │                                                       │
-│   └──────────┬──────────┘                                                       │
-│              │                                                                  │
-│              ▼                                                                  │
-│   ┌─────────────────────┐     NCC Private Endpoint Rule                         │
-│   │  Private Endpoint   │     (domain: *.confluent.cloud)                       │
-│   │  (NCC-managed)      │                                                       │
-│   └──────────┬──────────┘                                                       │
-└──────────────┼──────────────────────────────────────────────────────────────────┘
-               │  Azure Private Link
-               │
-┌──────────────┼──────────────────────────────────────────────────────────────────┐
-│              │              Customer VNet (Transit)                             │
-│              ▼                                                                  │
-│   ┌─────────────────────┐                                                       │
-│   │  Private Link       │◄──── Exposes LB to Databricks                         │
-│   │  Service            │                                                       │
-│   └──────────┬──────────┘                                                       │
-│              │                                                                  │
-│              ▼                                                                  │
-│   ┌─────────────────────┐                                                       │
-│   │  Azure Standard     │      Backend: Confluent PE IPs                        │
-│   │  Load Balancer      │      Ports: 9092 (Kafka)                              │
-│   └──────────┬──────────┘                                                       │
-│              │                                                                  │
-│              ▼                                                                  │
-│   ┌─────────────────────┐                                                       │
-│   │  Private Endpoint   │◄──── Points to Confluent's PLS                        │
-│   │  (to Confluent)     │                                                       │
-│   └──────────┬──────────┘                                                       │
-└──────────────┼──────────────────────────────────────────────────────────────────┘
-               │  Azure Private Link
-               │
-┌──────────────┼──────────────────────────────────────────────────────────────────┐
-│              ▼                   Confluent Cloud                                │
-│   ┌─────────────────────────────────────────────────────────────────────────┐   │
-│   │                         Kafka Cluster                                   │   │
-│   │   [Broker 1]  [Broker 2]  [Broker 3]                                    │   │
-│   │                     Kafka Topics                                        │   │
-│   └─────────────────────────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────────────────────────┘
+Databricks Serverless
+        │
+        │ NCC PE Rule (targets App GW Private Link)
+        ▼
+┌───────────────────────────────────────────────┐
+│            Customer transit VNet               │
+│                                                │
+│   ┌──────────────────────────────┐             │
+│   │  Application Gateway v2      │             │
+│   │  (TCP listener on 9092)      │             │
+│   │  + Native Private Link       │             │
+│   └──────────────┬───────────────┘             │
+│                  │                             │
+│                  ▼                             │
+│   ┌──────────────────────────────┐             │
+│   │  Private Endpoint            │             │
+│   │  (to Confluent Cloud)        │             │
+│   └──────────────┬───────────────┘             │
+└──────────────────┼─────────────────────────────┘
+                   │ Azure Private Link
+                   ▼
+            Confluent Cloud Kafka
 ```
 
-## Why this architecture?
+### Option B: VMSS HAProxy with Standard Load Balancer
 
-Databricks Serverless Compute can only establish private connectivity to resources behind an **Azure Standard Load Balancer**. Since Confluent Cloud is a SaaS service, we need a "transit" architecture:
+```
+Databricks Serverless
+        │
+        │ NCC PE Rule (targets PLS)
+        ▼
+┌───────────────────────────────────────────────┐
+│            Customer transit VNet               │
+│                                                │
+│   ┌──────────────────────────────┐             │
+│   │  Private Link Service        │             │
+│   │  (exposes LB to Databricks)  │             │
+│   └──────────────┬───────────────┘             │
+│                  │                             │
+│                  ▼                             │
+│   ┌──────────────────────────────┐             │
+│   │  Standard Load Balancer      │             │
+│   │  (frontend on 9092)          │             │
+│   └──────────────┬───────────────┘             │
+│                  │                             │
+│                  ▼                             │
+│   ┌──────────────────────────────┐             │
+│   │  VMSS (Ubuntu + HAProxy)     │             │
+│   │  TCP proxy to Confluent PE   │             │
+│   └──────────────┬───────────────┘             │
+│                  │                             │
+│                  ▼                             │
+│   ┌──────────────────────────────┐             │
+│   │  Private Endpoint            │             │
+│   │  (to Confluent Cloud)        │             │
+│   └──────────────┬───────────────┘             │
+└──────────────────┼─────────────────────────────┘
+                   │ Azure Private Link
+                   ▼
+            Confluent Cloud Kafka
+```
 
-1. **Confluent Private Endpoint** - Connects your VNet to Confluent Cloud
-2. **Azure Load Balancer** - Routes traffic to the Confluent PE
-3. **Private Link Service** - Exposes the LB to Databricks Serverless
-4. **Databricks NCC** - Creates a private endpoint to your PLS with DNS interception
+### Comparison
+
+| | App Gateway v2 (Option A) | VMSS HAProxy (Option B) |
+|---|---|---|
+| **Maturity** | Preview (TCP proxy) | GA (all components) |
+| **Azure provider** | Requires `azapi` (azurerm doesn't support TCP listeners) | `azurerm` only |
+| **NCC PE rule** | REST API only (via `null_resource`) | Native Terraform resource |
+| **Compute** | Fully managed PaaS | VMs you manage (patching, scaling) |
+| **Cost** | ~$200+/month (App GW v2 Standard) | ~$60/month (2x Standard_B2s + LB) |
+| **Complexity** | Lower (no VMs) | Higher (VMSS, cloud-init, HAProxy config) |
+| **HA** | Built-in | VMSS with 2+ instances behind LB |
+| **When to choose** | Production workloads, prefer managed | Cost-sensitive, need GA components, full control |
 
 ## Modules
 
 | Module | Description |
 |--------|-------------|
-| `confluent-transit-slb` | Azure infrastructure: VNet, Load Balancer, Private Link Service, Confluent PE |
-| `databricks-ncc-confluent` | Databricks NCC and private endpoint rule configuration |
+| `appgw-transit` | App Gateway v2 with TCP proxy, Confluent PE, and native Private Link |
+| `vmss-haproxy-transit` | Standard LB + VMSS HAProxy + PLS + Confluent PE |
+| `databricks-ncc-confluent` | Databricks NCC with PE rule (supports both transit modes) |
 | `confluent-dns` | Private DNS Zone for classic compute (optional) |
 
 ## Prerequisites
@@ -83,19 +110,29 @@ Databricks Serverless Compute can only establish private connectivity to resourc
 3. **Azure**
    - Subscription with permissions to create networking resources
    - Azure CLI authenticated (`az login`)
+   - For App GW option: register the TCP proxy preview feature flag
 
 ## Quick start
 
-```bash
-# Clone the repository
-git clone https://github.com/david-databricks/terraform-azure-databricks-confluent-privatelink.git
-cd terraform-azure-databricks-confluent-privatelink/examples/complete
+### Option A: App Gateway v2
 
-# Copy and edit the tfvars file
+```bash
+cd examples/appgw
 cp terraform.tfvars.example terraform.tfvars
 # Edit terraform.tfvars with your values
 
-# Initialize and apply
+terraform init
+terraform plan -out=tfplan
+terraform apply tfplan
+```
+
+### Option B: VMSS HAProxy
+
+```bash
+cd examples/vmss-haproxy
+cp terraform.tfvars.example terraform.tfvars
+# Edit terraform.tfvars with your values
+
 terraform init
 terraform plan -out=tfplan
 terraform apply tfplan
@@ -110,20 +147,124 @@ terraform apply tfplan
 | `confluent_private_link_service_alias` | From Confluent Cloud console | `s-xxxxx.privatelink.confluent.cloud` |
 | `confluent_cluster_id` | Confluent cluster ID | `pkc-xxxxx` |
 | `location` | Azure region | `eastus` |
+| `vmss_admin_ssh_public_key` | SSH key for VMSS (Option B only) | `ssh-rsa AAAA...` |
+
+## Module usage
+
+### Option A: App Gateway v2
+
+```hcl
+module "confluent_transit" {
+  source = "github.com/dgokeeffe/terraform-azure-databricks-confluent-privatelink//modules/appgw-transit"
+
+  resource_group_name                  = "rg-confluent-transit"
+  location                             = "eastus"
+  confluent_private_link_service_alias = "s-xxxxx.privatelink.confluent.cloud"
+
+  tags = { Environment = "production" }
+}
+
+module "databricks_ncc" {
+  source = "github.com/dgokeeffe/terraform-azure-databricks-confluent-privatelink//modules/databricks-ncc-confluent"
+
+  providers = {
+    databricks = databricks.account
+  }
+
+  ncc_name             = "ncc-confluent-eastus"
+  region               = "eastus"
+  transit_mode         = "appgw"
+  transit_resource_id  = module.confluent_transit.appgw_id
+  confluent_cluster_id = "pkc-xxxxx"
+  confluent_region     = "eastus"
+  workspace_ids        = ["1234567890123456"]
+
+  databricks_account_id       = var.databricks_account_id
+  transit_resource_group_name = "rg-confluent-transit"
+  transit_resource_name       = module.confluent_transit.appgw_name
+  auto_approve_pe             = true
+}
+```
+
+### Option B: VMSS HAProxy
+
+```hcl
+module "confluent_transit" {
+  source = "github.com/dgokeeffe/terraform-azure-databricks-confluent-privatelink//modules/vmss-haproxy-transit"
+
+  resource_group_name                  = "rg-confluent-transit"
+  location                             = "eastus"
+  confluent_private_link_service_alias = "s-xxxxx.privatelink.confluent.cloud"
+
+  vmss_admin_ssh_public_key = var.vmss_admin_ssh_public_key
+
+  tags = { Environment = "production" }
+}
+
+module "databricks_ncc" {
+  source = "github.com/dgokeeffe/terraform-azure-databricks-confluent-privatelink//modules/databricks-ncc-confluent"
+
+  providers = {
+    databricks = databricks.account
+  }
+
+  ncc_name             = "ncc-confluent-eastus"
+  region               = "eastus"
+  transit_mode         = "pls"
+  transit_resource_id  = module.confluent_transit.pls_id
+  confluent_cluster_id = "pkc-xxxxx"
+  confluent_region     = "eastus"
+  workspace_ids        = ["1234567890123456"]
+
+  transit_resource_group_name = "rg-confluent-transit"
+  transit_resource_name       = module.confluent_transit.pls_name
+  auto_approve_pe             = true
+}
+```
+
+## DNS configuration
+
+### Serverless compute
+
+DNS is handled automatically by the NCC private endpoint rule's `domain_names` configuration. No additional DNS setup is required.
+
+### Classic compute
+
+For classic compute clusters, use the `confluent-dns` module to create a Private DNS Zone:
+
+```hcl
+module "confluent_dns" {
+  source = "github.com/dgokeeffe/terraform-azure-databricks-confluent-privatelink//modules/confluent-dns"
+
+  resource_group_name  = "rg-confluent-transit"
+  location             = "eastus"
+  confluent_cluster_id = "pkc-xxxxx"
+  confluent_region     = "eastus"
+  target_ip            = module.confluent_transit.frontend_ip  # Works for both options
+  broker_count         = 6
+
+  vnet_ids_to_link = [module.confluent_transit.vnet_id]
+  vnet_names       = ["transit-vnet"]
+}
+```
 
 ## Post-deployment steps
 
 1. **Approve Confluent PE connection**
    - Go to Confluent Cloud Console
-   - Cluster → Settings → Networking → Private Link
+   - Cluster > Settings > Networking > Private Link
    - Approve the pending connection
 
-2. **Verify NCC status**
-   - Go to Databricks Account Console
-   - Security → Network Connectivity Configurations
-   - Verify status is `ESTABLISHED`
+2. **Approve NCC PE connection** (if `auto_approve_pe = false`)
+   - For App GW: approve in Azure portal on the Application Gateway Private Link tab
+   - For PLS: approve in Azure portal on the Private Link Service
 
-3. **Test connectivity**
+3. **Verify NCC status**
+   - Go to Databricks Account Console
+   - Security > Network Connectivity Configurations
+   - Verify PE rule status is `ESTABLISHED`
+
+4. **Test connectivity** from a Databricks notebook:
    ```python
    df = spark.read \
      .format("kafka") \
@@ -137,74 +278,19 @@ terraform apply tfplan
      .load()
    ```
 
-## Module usage
-
-### Using individual modules
-
-```hcl
-module "confluent_transit" {
-  source = "github.com/david-databricks/terraform-azure-databricks-confluent-privatelink//modules/confluent-transit-slb"
-
-  resource_group_name                  = "rg-confluent-transit"
-  location                             = "eastus"
-  confluent_private_link_service_alias = "s-xxxxx.privatelink.confluent.cloud"
-
-  tags = {
-    Environment = "production"
-  }
-}
-
-module "databricks_ncc" {
-  source = "github.com/david-databricks/terraform-azure-databricks-confluent-privatelink//modules/databricks-ncc-confluent"
-
-  providers = {
-    databricks = databricks.account
-  }
-
-  ncc_name                = "ncc-confluent-eastus"
-  region                  = "eastus"
-  private_link_service_id = module.confluent_transit.pls_id
-  confluent_cluster_id    = "pkc-xxxxx"
-  confluent_region        = "eastus"
-  workspace_ids           = ["1234567890123456"]
-
-  pls_resource_group_name = "rg-confluent-transit"
-  pls_name                = module.confluent_transit.pls_name
-}
-```
-
-## DNS configuration
-
-### Serverless compute
-
-For serverless compute, DNS is handled automatically by the NCC private endpoint rule's `domain_names` configuration. No additional DNS setup is required.
-
-### Classic compute
-
-For classic compute clusters, use the `confluent-dns` module to create a Private DNS Zone:
-
-```hcl
-module "confluent_dns" {
-  source = "github.com/david-databricks/terraform-azure-databricks-confluent-privatelink//modules/confluent-dns"
-
-  resource_group_name  = "rg-confluent-transit"
-  location             = "eastus"
-  confluent_cluster_id = "pkc-xxxxx"
-  confluent_region     = "eastus"
-  target_ip            = module.confluent_transit.lb_frontend_ip
-  broker_count         = 6
-
-  vnet_ids_to_link = [module.confluent_transit.vnet_id]
-  vnet_names       = ["transit-vnet"]
-}
-```
-
 ## Costs
 
-This architecture incurs costs for:
+### Option A: App Gateway v2
+
+- Application Gateway v2 Standard (~$200/month base + data processing)
+- Private Endpoints (~$7/month each)
+- Databricks serverless networking charges
+
+### Option B: VMSS HAProxy
 
 - Azure Standard Load Balancer (~$18/month base + data processing)
-- Azure Private Link Service (~$7/month + data processing)
+- VMSS instances (2x Standard_B2s ~$35/month)
+- Private Link Service (~$7/month + data processing)
 - Private Endpoints (~$7/month each)
 - Databricks serverless networking charges
 
@@ -218,15 +304,23 @@ This architecture incurs costs for:
 
 ### NCC PE rule not establishing
 
-- Verify the Private Link Service resource ID is correct
-- Check for pending approval on the Private Link Service
-- Ensure region alignment between workspace, NCC, and PLS
+- For PLS mode: verify the Private Link Service resource ID is correct
+- For App GW mode: verify the App Gateway resource ID and check the account console for PE rule status
+- Check for pending approval on the target resource
+- Ensure region alignment between workspace, NCC, and transit resources
 
 ### Kafka connection timeouts
 
 - Verify all domain names are in the NCC PE rule
-- Check Load Balancer health probes are healthy
+- For VMSS option: check Load Balancer health probes and HAProxy status on VMSS instances
+- For App GW option: check App Gateway backend health
 - Verify Confluent PE connection is approved
+
+### App GW TCP proxy issues
+
+- Ensure the TCP proxy preview feature flag is registered in your subscription
+- App GW TCP proxy requires API version 2024-05-01 or later
+- The `azurerm` provider does not support TCP listeners - `azapi` is required
 
 ## Contributing
 

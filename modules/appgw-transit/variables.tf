@@ -1,5 +1,5 @@
 # =============================================================================
-# Required Variables
+# Required variables
 # =============================================================================
 
 variable "resource_group_name" {
@@ -28,7 +28,7 @@ variable "confluent_private_link_service_alias" {
 }
 
 # =============================================================================
-# Network Configuration
+# Network configuration
 # =============================================================================
 
 variable "create_vnet" {
@@ -67,14 +67,14 @@ variable "create_subnets" {
   default     = true
 }
 
-variable "lb_subnet_name" {
-  description = "Name of subnet for Load Balancer and Private Link Service"
+variable "appgw_subnet_name" {
+  description = "Name of subnet for Application Gateway (requires /24 or larger)"
   type        = string
-  default     = "snet-lb"
+  default     = "snet-appgw"
 }
 
-variable "lb_subnet_address_prefix" {
-  description = "Address prefix for LB subnet (if creating)"
+variable "appgw_subnet_address_prefix" {
+  description = "Address prefix for App Gateway subnet (if creating)"
   type        = string
   default     = "10.200.1.0/24"
 }
@@ -91,8 +91,20 @@ variable "pe_subnet_address_prefix" {
   default     = "10.200.2.0/24"
 }
 
-variable "existing_lb_subnet_id" {
-  description = "Resource ID of existing LB subnet (required if create_subnets = false)"
+variable "appgw_privatelink_subnet_name" {
+  description = "Name of subnet for App Gateway Private Link configuration"
+  type        = string
+  default     = "snet-appgw-privatelink"
+}
+
+variable "appgw_privatelink_subnet_address_prefix" {
+  description = "Address prefix for App Gateway Private Link subnet (if creating)"
+  type        = string
+  default     = "10.200.3.0/24"
+}
+
+variable "existing_appgw_subnet_id" {
+  description = "Resource ID of existing App Gateway subnet (required if create_subnets = false)"
   type        = string
   default     = ""
 }
@@ -103,110 +115,47 @@ variable "existing_pe_subnet_id" {
   default     = ""
 }
 
-# =============================================================================
-# Load Balancer Configuration
-# =============================================================================
-
-variable "lb_name" {
-  description = "Name of the Azure Standard Load Balancer"
-  type        = string
-  default     = "lb-confluent-transit"
-}
-
-variable "lb_frontend_ip" {
-  description = "Static private IP for Load Balancer frontend (must be in lb_subnet range). Leave empty for dynamic allocation."
+variable "existing_appgw_privatelink_subnet_id" {
+  description = "Resource ID of existing App Gateway Private Link subnet (required if create_subnets = false)"
   type        = string
   default     = ""
 }
 
-variable "lb_sku" {
-  description = "Load Balancer SKU - must be Standard for Private Link"
+# =============================================================================
+# Application Gateway configuration
+# =============================================================================
+
+variable "appgw_name" {
+  description = "Name of the Application Gateway v2"
   type        = string
-  default     = "Standard"
-
-  validation {
-    condition     = var.lb_sku == "Standard"
-    error_message = "Load Balancer SKU must be 'Standard' for Private Link Service support."
-  }
+  default     = "appgw-confluent-transit"
 }
 
-# =============================================================================
-# Kafka Port Configuration
-# =============================================================================
-
-variable "kafka_ports" {
-  description = <<-EOT
-    List of Kafka ports to configure on the Load Balancer.
-    Default: 9092 (standard Kafka port)
-    Add 443 if using Confluent Cloud with TLS on port 443
-  EOT
-  type        = list(number)
-  default     = [9092]
-}
-
-variable "enable_kafka_rest_proxy" {
-  description = "Enable port 443 for Kafka REST Proxy / Schema Registry"
-  type        = bool
-  default     = false
-}
-
-# =============================================================================
-# Health Probe Configuration
-# =============================================================================
-
-variable "health_probe_interval" {
-  description = "Health probe interval in seconds"
-  type        = number
-  default     = 5
-}
-
-variable "health_probe_count" {
-  description = "Number of consecutive probe failures before marking unhealthy"
+variable "appgw_sku_capacity" {
+  description = "App Gateway instance count (2+ for HA)"
   type        = number
   default     = 2
-}
-
-# =============================================================================
-# Private Link Service Configuration
-# =============================================================================
-
-variable "pls_name" {
-  description = "Name of the Private Link Service"
-  type        = string
-  default     = "pls-confluent-transit"
-}
-
-variable "pls_nat_ip_count" {
-  description = "Number of NAT IPs for Private Link Service (for scale)"
-  type        = number
-  default     = 1
 
   validation {
-    condition     = var.pls_nat_ip_count >= 1 && var.pls_nat_ip_count <= 8
-    error_message = "NAT IP count must be between 1 and 8."
+    condition     = var.appgw_sku_capacity >= 1 && var.appgw_sku_capacity <= 10
+    error_message = "App Gateway capacity must be between 1 and 10."
   }
 }
 
-variable "pls_auto_approval_subscription_ids" {
-  description = "List of subscription IDs to auto-approve PE connections (empty = manual approval)"
-  type        = list(string)
-  default     = []
+variable "appgw_frontend_ip" {
+  description = "Static private IP for App Gateway frontend (must be in appgw_subnet range). Leave empty for dynamic allocation."
+  type        = string
+  default     = ""
 }
 
-variable "pls_visibility_subscription_ids" {
-  description = "List of subscription IDs that can see this PLS (empty = all)"
-  type        = list(string)
-  default     = []
-}
-
-variable "enable_proxy_protocol" {
-  description = "Enable proxy protocol on Private Link Service"
-  type        = bool
-  default     = false
+variable "kafka_port" {
+  description = "Kafka broker port to proxy"
+  type        = number
+  default     = 9092
 }
 
 # =============================================================================
-# Private Endpoint Configuration
+# Private Endpoint configuration
 # =============================================================================
 
 variable "pe_name" {
@@ -222,7 +171,7 @@ variable "pe_request_message" {
 }
 
 # =============================================================================
-# Naming and Tagging
+# Naming and tagging
 # =============================================================================
 
 variable "name_prefix" {

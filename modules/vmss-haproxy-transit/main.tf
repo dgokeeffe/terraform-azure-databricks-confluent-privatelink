@@ -1,31 +1,21 @@
 # =============================================================================
-# Local Variables
+# Local variables
 # =============================================================================
 
 locals {
-  # Naming
   prefix = var.name_prefix != "" ? "${var.name_prefix}-" : ""
 
-  # Determine VNet name for subnet creation
   vnet_name_for_subnets = var.create_vnet ? azurerm_virtual_network.transit[0].name : var.vnet_name
+  vnet_resource_group   = var.create_vnet ? var.resource_group_name : var.existing_vnet_resource_group
+  vnet_id               = var.create_vnet ? azurerm_virtual_network.transit[0].id : var.existing_vnet_id
 
-  # Determine resource group for VNet operations
-  vnet_resource_group = var.create_vnet ? var.resource_group_name : var.existing_vnet_resource_group
+  lb_subnet_id   = var.create_subnets ? azurerm_subnet.lb[0].id : var.existing_lb_subnet_id
+  pe_subnet_id   = var.create_subnets ? azurerm_subnet.pe[0].id : var.existing_pe_subnet_id
+  vmss_subnet_id = var.create_subnets ? azurerm_subnet.vmss[0].id : var.existing_vmss_subnet_id
 
-  # Determine subnet IDs
-  lb_subnet_id = var.create_subnets ? azurerm_subnet.lb[0].id : var.existing_lb_subnet_id
-  pe_subnet_id = var.create_subnets ? azurerm_subnet.pe[0].id : var.existing_pe_subnet_id
-
-  # Determine VNet ID for backend pool
-  vnet_id = var.create_vnet ? azurerm_virtual_network.transit[0].id : var.existing_vnet_id
-
-  # Kafka ports including optional REST proxy
-  all_kafka_ports = var.enable_kafka_rest_proxy ? distinct(concat(var.kafka_ports, [443])) : var.kafka_ports
-
-  # Default tags
   default_tags = {
     ManagedBy = "terraform"
-    Module    = "confluent-transit-slb"
+    Module    = "vmss-haproxy-transit"
     Purpose   = "databricks-serverless-to-confluent"
   }
 
@@ -33,7 +23,7 @@ locals {
 }
 
 # =============================================================================
-# Virtual Network (Optional)
+# Virtual Network (optional)
 # =============================================================================
 
 resource "azurerm_virtual_network" "transit" {
@@ -47,10 +37,9 @@ resource "azurerm_virtual_network" "transit" {
 }
 
 # =============================================================================
-# Subnets (Optional)
+# Subnets (optional)
 # =============================================================================
 
-# Subnet for Load Balancer and Private Link Service
 resource "azurerm_subnet" "lb" {
   count = var.create_subnets ? 1 : 0
 
@@ -59,13 +48,11 @@ resource "azurerm_subnet" "lb" {
   virtual_network_name = local.vnet_name_for_subnets
   address_prefixes     = [var.lb_subnet_address_prefix]
 
-  # Required for Private Link Service
   private_link_service_network_policies_enabled = false
 
   depends_on = [azurerm_virtual_network.transit]
 }
 
-# Subnet for Private Endpoint to Confluent
 resource "azurerm_subnet" "pe" {
   count = var.create_subnets ? 1 : 0
 
@@ -74,8 +61,18 @@ resource "azurerm_subnet" "pe" {
   virtual_network_name = local.vnet_name_for_subnets
   address_prefixes     = [var.pe_subnet_address_prefix]
 
-  # Required for Private Endpoints
   private_endpoint_network_policies = "Disabled"
+
+  depends_on = [azurerm_virtual_network.transit]
+}
+
+resource "azurerm_subnet" "vmss" {
+  count = var.create_subnets ? 1 : 0
+
+  name                 = var.vmss_subnet_name
+  resource_group_name  = var.create_vnet ? var.resource_group_name : local.vnet_resource_group
+  virtual_network_name = local.vnet_name_for_subnets
+  address_prefixes     = [var.vmss_subnet_address_prefix]
 
   depends_on = [azurerm_virtual_network.transit]
 }
@@ -99,18 +96,14 @@ resource "azurerm_private_endpoint" "confluent" {
   }
 
   lifecycle {
-    # Confluent PE connection state changes after approval
     ignore_changes = [
       private_service_connection[0].private_connection_resource_id
     ]
   }
 
-  depends_on = [
-    azurerm_subnet.pe
-  ]
+  depends_on = [azurerm_subnet.pe]
 }
 
-# Wait for PE to be provisioned before creating LB backend
 resource "time_sleep" "wait_for_pe" {
   depends_on = [azurerm_private_endpoint.confluent]
 
@@ -125,7 +118,7 @@ resource "azurerm_lb" "transit" {
   name                = "${local.prefix}${var.lb_name}"
   location            = var.location
   resource_group_name = var.resource_group_name
-  sku                 = var.lb_sku
+  sku                 = "Standard"
   sku_tier            = "Regional"
   tags                = local.tags
 
@@ -137,71 +130,109 @@ resource "azurerm_lb" "transit" {
     private_ip_address_version    = "IPv4"
   }
 
-  depends_on = [
-    azurerm_subnet.lb
-  ]
+  depends_on = [azurerm_subnet.lb]
 }
 
 # =============================================================================
-# Backend Address Pool
+# LB backend pool - targets VMSS (not PE IPs)
 # =============================================================================
 
-resource "azurerm_lb_backend_address_pool" "confluent" {
-  name            = "backend-confluent-pe"
+resource "azurerm_lb_backend_address_pool" "haproxy" {
+  name            = "backend-haproxy-vmss"
   loadbalancer_id = azurerm_lb.transit.id
 }
 
-# Add Confluent PE IP to backend pool
-resource "azurerm_lb_backend_address_pool_address" "confluent_pe" {
-  name                    = "confluent-pe-address"
-  backend_address_pool_id = azurerm_lb_backend_address_pool.confluent.id
-  virtual_network_id      = local.vnet_id
-  ip_address              = azurerm_private_endpoint.confluent.private_service_connection[0].private_ip_address
-
-  depends_on = [time_sleep.wait_for_pe]
-}
-
 # =============================================================================
-# Health Probes - One per Kafka port
+# Health probe and LB rule
 # =============================================================================
 
 resource "azurerm_lb_probe" "kafka" {
-  for_each = toset([for p in local.all_kafka_ports : tostring(p)])
-
-  name                = "probe-kafka-${each.value}"
+  name                = "probe-kafka-${var.kafka_port}"
   loadbalancer_id     = azurerm_lb.transit.id
   protocol            = "Tcp"
-  port                = tonumber(each.value)
-  interval_in_seconds = var.health_probe_interval
-  number_of_probes    = var.health_probe_count
+  port                = var.kafka_port
+  interval_in_seconds = 5
+  number_of_probes    = 2
 }
 
-# =============================================================================
-# Load Balancing Rules - One per Kafka port
-# =============================================================================
-
 resource "azurerm_lb_rule" "kafka" {
-  for_each = toset([for p in local.all_kafka_ports : tostring(p)])
-
-  name                           = "rule-kafka-${each.value}"
+  name                           = "rule-kafka-${var.kafka_port}"
   loadbalancer_id                = azurerm_lb.transit.id
   protocol                       = "Tcp"
-  frontend_port                  = tonumber(each.value)
-  backend_port                   = tonumber(each.value)
+  frontend_port                  = var.kafka_port
+  backend_port                   = var.kafka_port
   frontend_ip_configuration_name = "frontend-confluent"
-  backend_address_pool_ids       = [azurerm_lb_backend_address_pool.confluent.id]
-  probe_id                       = azurerm_lb_probe.kafka[each.value].id
+  backend_address_pool_ids       = [azurerm_lb_backend_address_pool.haproxy.id]
+  probe_id                       = azurerm_lb_probe.kafka.id
 
-  # LB configuration optimized for Kafka
   enable_floating_ip      = false
   enable_tcp_reset        = true
   idle_timeout_in_minutes = 4
   disable_outbound_snat   = true
-  load_distribution       = "Default" # 5-tuple hash
+  load_distribution       = "Default"
 }
 
 # =============================================================================
-# Private Link Service (Exposes LB to Databricks)
+# VMSS with HAProxy (cloud-init provisioned)
+# =============================================================================
+
+resource "azurerm_linux_virtual_machine_scale_set" "haproxy" {
+  name                = "${local.prefix}${var.vmss_name}"
+  location            = var.location
+  resource_group_name = var.resource_group_name
+  sku                 = var.vmss_sku
+  instances           = var.vmss_instances
+  admin_username      = var.vmss_admin_username
+  tags                = local.tags
+
+  admin_ssh_key {
+    username   = var.vmss_admin_username
+    public_key = var.vmss_admin_ssh_public_key
+  }
+
+  source_image_reference {
+    publisher = "Canonical"
+    offer     = "0001-com-ubuntu-server-jammy"
+    sku       = "22_04-lts-gen2"
+    version   = "latest"
+  }
+
+  os_disk {
+    storage_account_type = "Standard_LRS"
+    caching              = "ReadWrite"
+  }
+
+  network_interface {
+    name    = "nic-haproxy"
+    primary = true
+
+    ip_configuration {
+      name                                   = "ipconfig-haproxy"
+      primary                                = true
+      subnet_id                              = local.vmss_subnet_id
+      load_balancer_backend_address_pool_ids = [azurerm_lb_backend_address_pool.haproxy.id]
+    }
+  }
+
+  custom_data = base64encode(
+    templatefile("${path.module}/templates/cloud-init.yaml.tpl", {
+      haproxy_cfg = indent(6, templatefile("${path.module}/templates/haproxy.cfg.tpl", {
+        kafka_port      = var.kafka_port
+        confluent_pe_ip = azurerm_private_endpoint.confluent.private_service_connection[0].private_ip_address
+      }))
+    })
+  )
+
+  upgrade_mode = "Manual"
+
+  depends_on = [
+    time_sleep.wait_for_pe,
+    azurerm_lb_rule.kafka
+  ]
+}
+
+# =============================================================================
+# Private Link Service (exposes LB to Databricks)
 # =============================================================================
 
 resource "azurerm_private_link_service" "transit" {
@@ -214,7 +245,6 @@ resource "azurerm_private_link_service" "transit" {
     azurerm_lb.transit.frontend_ip_configuration[0].id
   ]
 
-  # NAT IP configurations for the PLS
   dynamic "nat_ip_configuration" {
     for_each = range(var.pls_nat_ip_count)
     content {
@@ -225,10 +255,6 @@ resource "azurerm_private_link_service" "transit" {
     }
   }
 
-  # Auto-approval settings
   auto_approval_subscription_ids = var.pls_auto_approval_subscription_ids
   visibility_subscription_ids    = var.pls_visibility_subscription_ids
-
-  # Enable proxy protocol if needed (usually not for Kafka)
-  enable_proxy_protocol = var.enable_proxy_protocol
 }

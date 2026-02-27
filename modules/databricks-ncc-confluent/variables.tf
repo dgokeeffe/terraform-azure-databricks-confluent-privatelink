@@ -1,5 +1,5 @@
 # =============================================================================
-# Required Variables
+# Required variables
 # =============================================================================
 
 variable "ncc_name" {
@@ -13,8 +13,23 @@ variable "region" {
   type        = string
 }
 
-variable "private_link_service_id" {
-  description = "Resource ID of the Private Link Service (from confluent-transit-slb module)"
+variable "transit_mode" {
+  description = <<-EOT
+    Transit architecture mode:
+    - "pls": Private Link Service (used with vmss-haproxy-transit module)
+    - "appgw": Application Gateway v2 (used with appgw-transit module)
+  EOT
+  type        = string
+  default     = "pls"
+
+  validation {
+    condition     = contains(["pls", "appgw"], var.transit_mode)
+    error_message = "transit_mode must be either 'pls' or 'appgw'."
+  }
+}
+
+variable "transit_resource_id" {
+  description = "Resource ID of the transit resource (PLS ID for pls mode, App GW ID for appgw mode)"
   type        = string
 }
 
@@ -44,27 +59,48 @@ variable "workspace_ids" {
 }
 
 # =============================================================================
-# PE Approval Configuration
+# PE approval configuration (PLS mode)
 # =============================================================================
 
-variable "pls_resource_group_name" {
-  description = "Resource group containing the Private Link Service (for PE approval)"
+variable "transit_resource_group_name" {
+  description = "Resource group containing the transit resource (PLS or App GW) for PE approval"
   type        = string
 }
 
-variable "pls_name" {
-  description = "Name of the Private Link Service (for PE approval)"
+variable "transit_resource_name" {
+  description = "Name of the transit resource (PLS name or App GW name) for PE approval"
   type        = string
 }
 
 variable "auto_approve_pe" {
-  description = "Automatically approve the PE connection on the Private Link Service"
+  description = "Automatically approve the PE connection on the transit resource"
   type        = bool
   default     = true
 }
 
 # =============================================================================
-# Advanced Configuration
+# App GW mode configuration
+# =============================================================================
+
+variable "databricks_account_id" {
+  description = "Databricks account ID (required for appgw mode REST API calls)"
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.databricks_account_id == "" || can(regex("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", var.databricks_account_id))
+    error_message = "Databricks account ID must be a valid UUID or empty string."
+  }
+}
+
+variable "databricks_host" {
+  description = "Databricks accounts API host (for appgw mode REST API calls)"
+  type        = string
+  default     = "https://accounts.azuredatabricks.net"
+}
+
+# =============================================================================
+# Advanced configuration
 # =============================================================================
 
 variable "additional_domain_names" {

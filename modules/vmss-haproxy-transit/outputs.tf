@@ -1,5 +1,5 @@
 # =============================================================================
-# VNet Outputs
+# VNet outputs
 # =============================================================================
 
 output "vnet_id" {
@@ -12,18 +12,8 @@ output "vnet_name" {
   value       = var.create_vnet ? azurerm_virtual_network.transit[0].name : var.vnet_name
 }
 
-output "lb_subnet_id" {
-  description = "Load Balancer subnet ID"
-  value       = local.lb_subnet_id
-}
-
-output "pe_subnet_id" {
-  description = "Private Endpoint subnet ID"
-  value       = local.pe_subnet_id
-}
-
 # =============================================================================
-# Confluent Private Endpoint Outputs
+# Confluent Private Endpoint outputs
 # =============================================================================
 
 output "confluent_pe_id" {
@@ -42,7 +32,7 @@ output "confluent_pe_ip" {
 }
 
 # =============================================================================
-# Load Balancer Outputs
+# Load Balancer outputs
 # =============================================================================
 
 output "lb_id" {
@@ -50,38 +40,22 @@ output "lb_id" {
   value       = azurerm_lb.transit.id
 }
 
-output "lb_name" {
-  description = "Load Balancer name"
-  value       = azurerm_lb.transit.name
-}
-
 output "lb_frontend_ip" {
   description = "Load Balancer frontend private IP"
   value       = azurerm_lb.transit.frontend_ip_configuration[0].private_ip_address
 }
 
-output "lb_frontend_ip_configuration_id" {
-  description = "Load Balancer frontend IP configuration ID"
-  value       = azurerm_lb.transit.frontend_ip_configuration[0].id
-}
+# =============================================================================
+# VMSS outputs
+# =============================================================================
 
-output "lb_backend_pool_id" {
-  description = "Load Balancer backend pool ID"
-  value       = azurerm_lb_backend_address_pool.confluent.id
-}
-
-output "lb_probe_ids" {
-  description = "Load Balancer health probe IDs"
-  value       = { for k, v in azurerm_lb_probe.kafka : k => v.id }
-}
-
-output "lb_rule_ids" {
-  description = "Load Balancer rule IDs"
-  value       = { for k, v in azurerm_lb_rule.kafka : k => v.id }
+output "vmss_id" {
+  description = "Virtual Machine Scale Set resource ID"
+  value       = azurerm_linux_virtual_machine_scale_set.haproxy.id
 }
 
 # =============================================================================
-# Private Link Service Outputs
+# Private Link Service outputs
 # =============================================================================
 
 output "pls_id" {
@@ -107,26 +81,22 @@ output "pls_nat_ips" {
 }
 
 # =============================================================================
-# Databricks NCC Configuration Helper
+# DNS target
 # =============================================================================
 
-output "databricks_ncc_config" {
-  description = "Configuration values needed for Databricks NCC Private Endpoint Rule"
-  value = {
-    resource_id = azurerm_private_link_service.transit.id
-    group_id    = "confluent-kafka"
-    description = "Use these values when creating databricks_mws_ncc_private_endpoint_rule"
-  }
+output "kafka_bootstrap_target_ip" {
+  description = "IP address that Kafka bootstrap server FQDNs should resolve to"
+  value       = azurerm_lb.transit.frontend_ip_configuration[0].private_ip_address
 }
 
 # =============================================================================
-# Connection Summary
+# Connection summary
 # =============================================================================
 
 output "connection_summary" {
   description = "Summary of the transit architecture components"
   value = {
-    architecture = "Databricks Serverless -> NCC PE -> PLS -> LB -> Confluent PE -> Confluent Cloud"
+    architecture = "Databricks Serverless -> NCC PE -> PLS -> LB -> VMSS HAProxy -> Confluent PE -> Confluent Cloud"
 
     confluent_pe = {
       name   = azurerm_private_endpoint.confluent.name
@@ -137,7 +107,12 @@ output "connection_summary" {
     load_balancer = {
       name        = azurerm_lb.transit.name
       frontend_ip = azurerm_lb.transit.frontend_ip_configuration[0].private_ip_address
-      ports       = local.all_kafka_ports
+    }
+
+    vmss = {
+      name      = azurerm_linux_virtual_machine_scale_set.haproxy.name
+      instances = var.vmss_instances
+      sku       = var.vmss_sku
     }
 
     private_link_service = {
@@ -148,18 +123,9 @@ output "connection_summary" {
 
     next_steps = [
       "1. Approve PE connection in Confluent Cloud Console",
-      "2. Create Databricks NCC using databricks-ncc-confluent module",
+      "2. Create Databricks NCC using databricks-ncc-confluent module with transit_mode = pls",
       "3. Verify NCC PE status is ESTABLISHED",
       "4. Test Kafka connectivity from serverless compute"
     ]
   }
-}
-
-# =============================================================================
-# DNS Target
-# =============================================================================
-
-output "kafka_bootstrap_target_ip" {
-  description = "IP address that Kafka bootstrap server FQDNs should resolve to"
-  value       = azurerm_lb.transit.frontend_ip_configuration[0].private_ip_address
 }

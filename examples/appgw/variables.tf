@@ -1,5 +1,5 @@
 # =============================================================================
-# Required Variables
+# Required variables
 # =============================================================================
 
 variable "databricks_account_id" {
@@ -23,12 +23,7 @@ variable "databricks_workspace_ids" {
 }
 
 variable "confluent_private_link_service_alias" {
-  description = <<-EOT
-    Confluent Cloud Private Link Service alias.
-    Find this in Confluent Cloud Console:
-    Cluster -> Settings -> Networking -> Private Link -> Azure Private Link Service alias
-    Format: s-xxxxx.privatelink.confluent.cloud
-  EOT
+  description = "Confluent Cloud Private Link Service alias (s-xxxxx.privatelink.confluent.cloud)"
   type        = string
 }
 
@@ -38,12 +33,12 @@ variable "confluent_cluster_id" {
 }
 
 variable "confluent_region" {
-  description = "Confluent Cloud region (e.g., eastus, westus2). Usually matches Azure region."
+  description = "Confluent Cloud region (usually matches Azure region)"
   type        = string
 }
 
 # =============================================================================
-# Azure Configuration
+# Azure configuration
 # =============================================================================
 
 variable "resource_group_name" {
@@ -59,7 +54,7 @@ variable "location" {
 }
 
 # =============================================================================
-# Network Configuration
+# Network configuration
 # =============================================================================
 
 variable "vnet_address_space" {
@@ -68,8 +63,8 @@ variable "vnet_address_space" {
   default     = ["10.200.0.0/16"]
 }
 
-variable "lb_subnet_address_prefix" {
-  description = "Address prefix for the Load Balancer subnet"
+variable "appgw_subnet_address_prefix" {
+  description = "Address prefix for the App Gateway subnet"
   type        = string
   default     = "10.200.1.0/24"
 }
@@ -80,30 +75,42 @@ variable "pe_subnet_address_prefix" {
   default     = "10.200.2.0/24"
 }
 
-variable "lb_frontend_ip" {
-  description = "Static private IP for Load Balancer frontend. Leave empty for dynamic allocation."
+variable "appgw_privatelink_subnet_address_prefix" {
+  description = "Address prefix for the App GW Private Link subnet"
   type        = string
-  default     = "10.200.1.100"
+  default     = "10.200.3.0/24"
+}
+
+variable "appgw_frontend_ip" {
+  description = "Static private IP for App GW frontend. Leave empty for dynamic."
+  type        = string
+  default     = ""
 }
 
 # =============================================================================
-# Kafka Configuration
+# App Gateway / Kafka configuration
 # =============================================================================
 
-variable "kafka_ports" {
-  description = "Kafka ports to configure on the Load Balancer"
-  type        = list(number)
-  default     = [9092]
+variable "kafka_port" {
+  description = "Kafka broker port"
+  type        = number
+  default     = 9092
+}
+
+variable "appgw_sku_capacity" {
+  description = "App Gateway instance count"
+  type        = number
+  default     = 2
 }
 
 variable "broker_count" {
-  description = "Number of Kafka brokers in the Confluent cluster (for DNS records)"
+  description = "Number of Kafka brokers (for DNS records)"
   type        = number
   default     = 6
 }
 
 # =============================================================================
-# Optional Features
+# Optional features
 # =============================================================================
 
 variable "enable_dns_zone" {
@@ -112,14 +119,8 @@ variable "enable_dns_zone" {
   default     = true
 }
 
-variable "auto_approve_subscription_ids" {
-  description = "Azure subscription IDs to auto-approve on the Private Link Service"
-  type        = list(string)
-  default     = []
-}
-
 variable "auto_approve_databricks_pe" {
-  description = "Automatically approve Databricks PE connection on the Private Link Service"
+  description = "Automatically approve Databricks PE connection on the App Gateway"
   type        = bool
   default     = true
 }

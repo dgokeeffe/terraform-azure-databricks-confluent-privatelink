@@ -1,5 +1,5 @@
 # =============================================================================
-# NCC Outputs
+# NCC outputs
 # =============================================================================
 
 output "ncc_id" {
@@ -13,35 +13,35 @@ output "ncc_name" {
 }
 
 # =============================================================================
-# Private Endpoint Rule Outputs
+# Private Endpoint Rule outputs (PLS mode only)
 # =============================================================================
 
 output "pe_rule_id" {
-  description = "Private Endpoint Rule ID"
-  value       = databricks_mws_ncc_private_endpoint_rule.confluent.rule_id
+  description = "Private Endpoint Rule ID (PLS mode only)"
+  value       = var.transit_mode == "pls" ? databricks_mws_ncc_private_endpoint_rule.confluent[0].rule_id : "managed-via-rest-api"
 }
 
 output "pe_rule_connection_state" {
-  description = "Private Endpoint Rule connection state"
-  value       = databricks_mws_ncc_private_endpoint_rule.confluent.connection_state
+  description = "Private Endpoint Rule connection state (PLS mode only)"
+  value       = var.transit_mode == "pls" ? databricks_mws_ncc_private_endpoint_rule.confluent[0].connection_state : "check-account-console"
 }
 
 output "domain_names" {
   description = "Domain names configured for DNS interception"
-  value       = databricks_mws_ncc_private_endpoint_rule.confluent.domain_names
+  value       = local.all_domain_names
 }
 
 # =============================================================================
-# Workspace Binding Outputs
+# Workspace binding outputs
 # =============================================================================
 
 output "workspace_bindings" {
   description = "Workspace IDs bound to this NCC"
-  value       = [for b in databricks_mws_network_connectivity_config_workspace_binding.confluent : b.workspace_id]
+  value       = [for b in databricks_mws_ncc_binding.confluent : b.workspace_id]
 }
 
 # =============================================================================
-# Kafka Connection String
+# Kafka connection string
 # =============================================================================
 
 output "kafka_bootstrap_servers" {
@@ -55,7 +55,7 @@ output "kafka_bootstrap_fqdn" {
 }
 
 # =============================================================================
-# Connection Summary
+# Connection summary
 # =============================================================================
 
 output "connection_summary" {
@@ -64,16 +64,17 @@ output "connection_summary" {
     ncc_id           = databricks_mws_network_connectivity_config.confluent.network_connectivity_config_id
     ncc_name         = databricks_mws_network_connectivity_config.confluent.name
     region           = var.region
-    pe_rule_id       = databricks_mws_ncc_private_endpoint_rule.confluent.rule_id
-    connection_state = databricks_mws_ncc_private_endpoint_rule.confluent.connection_state
-    domain_names     = databricks_mws_ncc_private_endpoint_rule.confluent.domain_names
-    workspaces       = [for b in databricks_mws_network_connectivity_config_workspace_binding.confluent : b.workspace_id]
+    transit_mode     = var.transit_mode
+    pe_rule_id       = var.transit_mode == "pls" ? databricks_mws_ncc_private_endpoint_rule.confluent[0].rule_id : "managed-via-rest-api"
+    connection_state = var.transit_mode == "pls" ? databricks_mws_ncc_private_endpoint_rule.confluent[0].connection_state : "check-account-console"
+    domain_names     = local.all_domain_names
+    workspaces       = [for b in databricks_mws_ncc_binding.confluent : b.workspace_id]
     bootstrap_server = "${local.bootstrap_fqdn}:9092"
   }
 }
 
 # =============================================================================
-# Spark Configuration Helper
+# Spark configuration helper
 # =============================================================================
 
 output "spark_kafka_options" {
