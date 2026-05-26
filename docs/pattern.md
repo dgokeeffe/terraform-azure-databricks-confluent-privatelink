@@ -32,6 +32,12 @@ for the run URLs.
 
 ## The pattern in one diagram
 
+![Databricks Serverless → Kafka over Azure Private Link](pattern-architecture.png)
+
+A text-only version follows for terminals and accessibility:
+
+
+
 ```
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │ DATABRICKS-MANAGED TENANT                                                    │
