@@ -75,7 +75,7 @@ variable "confluent_private_link_service_alias" {
     NOTE: modern Dedicated/Enterprise clusters may publish a different
     alias format. If the transit module's regex rejects what Confluent
     gives you, contact Confluent support for the correct alias or relax
-    the validation in modules/vmss-haproxy-transit/variables.tf.
+    the validation in modules/appgw-transit/variables.tf.
   EOT
   type = string
 }
@@ -86,8 +86,9 @@ variable "confluent_schema_registry_fqdn" {
     Avro / Protobuf / JSON-Schema topics). Typically
     psrc-XXXXX.<region>.azure.confluent.cloud. Leave empty to skip.
     Note: Schema Registry uses a separate Confluent PLS — if registered
-    here, the transit PE still proxies broker traffic only. To proxy
-    SR traffic too, add a second PE/HAProxy chain (not in this example).
+    here, the App Gateway still only proxies broker traffic. To proxy
+    SR traffic too, add a second listener or a parallel transit (not in
+    this example).
   EOT
   type    = string
   default = ""
@@ -127,10 +128,10 @@ variable "existing_vnet_resource_group" {
   default     = ""
 }
 
-variable "lb_subnet_address_prefix" {
-  description = "Subnet CIDR for the LB + PLS NAT pool. /27 minimum recommended; /28 only if traffic is light."
+variable "appgw_subnet_address_prefix" {
+  description = "Subnet CIDR for the Application Gateway data plane. App Gateway v2 requires /24 minimum."
   type        = string
-  default     = "10.220.1.0/27"
+  default     = "10.220.1.0/24"
 }
 
 variable "pe_subnet_address_prefix" {
@@ -139,49 +140,37 @@ variable "pe_subnet_address_prefix" {
   default     = "10.220.2.0/28"
 }
 
-variable "vmss_subnet_address_prefix" {
-  description = "Subnet CIDR for HAProxy VMSS instances. /27 supports up to ~27 instances (Azure reserves 5 IPs)."
+variable "appgw_privatelink_subnet_address_prefix" {
+  description = "Subnet CIDR for App Gateway's native Private Link configuration (separate subnet required by App GW v2)."
   type        = string
-  default     = "10.220.3.0/27"
+  default     = "10.220.3.0/24"
 }
 
-variable "lb_frontend_ip" {
-  description = "Optional static private IP for the LB frontend (must be in the LB subnet range). Leave empty for dynamic allocation."
+# =============================================================================
+# Application Gateway v2
+# =============================================================================
+
+variable "appgw_sku_capacity" {
+  description = "App Gateway instance count (minimum 2 for HA). App GW v2 auto-scales between this and a higher bound."
+  type        = number
+  default     = 2
+
+  validation {
+    condition     = var.appgw_sku_capacity >= 1 && var.appgw_sku_capacity <= 10
+    error_message = "App Gateway capacity must be between 1 and 10."
+  }
+}
+
+variable "appgw_frontend_ip" {
+  description = "Optional static private IP for the App Gateway frontend (must be in the appgw_subnet range). Leave empty for dynamic allocation."
   type        = string
   default     = ""
 }
 
-# =============================================================================
-# VMSS / HAProxy
-# =============================================================================
-
-variable "vmss_sku" {
-  description = "VM size for HAProxy instances. Standard_B2s is fine for moderate throughput; bump to Standard_D2s_v5 for sustained > ~200 MB/s."
-  type        = string
-  default     = "Standard_B2s"
-}
-
-variable "vmss_instances" {
-  description = "Number of HAProxy instances. Two is the minimum for HA; three if you want N+1 within the AZ for patching headroom."
-  type        = number
-  default     = 2
-}
-
-variable "vmss_admin_ssh_public_key" {
-  description = "SSH public key for the HAProxy VMs. Required by Azure even though no human should SSH in normally."
-  type        = string
-}
-
 variable "kafka_port" {
-  description = "TCP port the LB / HAProxy / PE listen on. Confluent Cloud Kafka is 9092 (TLS terminates at the brokers, not the LB)."
+  description = "TCP port the App Gateway listens on and forwards to the Confluent PE. Confluent Cloud Kafka is 9092 (TLS terminates at the brokers, not the proxy)."
   type        = number
   default     = 9092
-}
-
-variable "pls_nat_ip_count" {
-  description = "Number of NAT IPs on the transit PLS. Each NAT IP supports ~64K concurrent connections. One is enough for most workloads."
-  type        = number
-  default     = 1
 }
 
 # =============================================================================
@@ -189,7 +178,7 @@ variable "pls_nat_ip_count" {
 # =============================================================================
 
 variable "databricks_account_id" {
-  description = "Databricks account UUID. Find in account console -> User profile dropdown -> Account ID."
+  description = "Databricks account UUID. Find in account console -> User profile dropdown -> Account ID. Required for App Gateway transit because the NCC PE rule is created via REST API (no native terraform resource yet)."
   type        = string
 }
 
@@ -202,16 +191,4 @@ variable "ncc_name" {
   description = "Name for the NCC (only used if this terraform creates a new NCC; reuse pattern is in main.tf comments)."
   type        = string
   default     = "ncc-confluent"
-}
-
-variable "databricks_managed_subscription_id" {
-  description = <<-EOT
-    Databricks' managed serverless subscription ID for the target region.
-    Populates the transit PLS's visibility + auto-approval allow-lists so
-    the NCC's auto-provisioned PE attaches without manual approval.
-    Find in: Databricks docs ->
-      'Microsoft Azure subscriptions used by Databricks-managed services'
-    (varies by region; check current value before applying).
-  EOT
-  type = string
 }

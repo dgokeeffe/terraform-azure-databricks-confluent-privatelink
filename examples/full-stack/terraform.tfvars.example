@@ -35,34 +35,25 @@ confluent_schema_registry_fqdn = ""  # "psrc-XXXXX.<region>.azure.confluent.clou
 
 # ---- Transit VNet ---------------------------------------------------------
 
-create_vnet                = true
-vnet_name                  = "vnet-confluent-transit"
-vnet_address_space         = ["10.220.0.0/16"]
-lb_subnet_address_prefix   = "10.220.1.0/27"
-pe_subnet_address_prefix   = "10.220.2.0/28"
-vmss_subnet_address_prefix = "10.220.3.0/27"
+create_vnet                              = true
+vnet_name                                = "vnet-confluent-transit"
+vnet_address_space                       = ["10.220.0.0/16"]
+appgw_subnet_address_prefix              = "10.220.1.0/24"
+pe_subnet_address_prefix                 = "10.220.2.0/28"
+appgw_privatelink_subnet_address_prefix  = "10.220.3.0/24"
 
 # If reusing an existing VNet, flip create_vnet = false and set:
 # existing_vnet_id             = "/subscriptions/.../resourceGroups/.../providers/Microsoft.Network/virtualNetworks/..."
 # existing_vnet_resource_group = "rg-network-hub"
 
-# ---- VMSS / HAProxy -------------------------------------------------------
+# ---- Application Gateway v2 ----------------------------------------------
 
-vmss_sku         = "Standard_B2s"
-vmss_instances   = 2
-kafka_port       = 9092
-pls_nat_ip_count = 1
+appgw_sku_capacity = 2          # minimum 2 for HA; App GW v2 auto-scales above this
+appgw_frontend_ip  = ""         # leave empty for dynamic allocation
+kafka_port         = 9092
 
-# Generate with: ssh-keygen -t ed25519 -C "haproxy-vmss" -f ./haproxy-vmss
-vmss_admin_ssh_public_key = "ssh-ed25519 AAAA... haproxy-vmss"
-
-# ---- Databricks ------------------------------------------------------------
+# ---- Databricks ----------------------------------------------------------
 
 databricks_account_id    = "00000000-0000-0000-0000-000000000000"
 databricks_workspace_ids = ["1234567890123456"]
 ncc_name                 = "ncc-confluent"
-
-# Databricks' managed serverless sub-ID for the target region.
-# Source of truth (verify before applying):
-#   https://learn.microsoft.com/en-us/azure/databricks/resources/azure-subscriptions
-databricks_managed_subscription_id = "00000000-0000-0000-0000-000000000000"

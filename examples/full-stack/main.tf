@@ -4,9 +4,9 @@
 #
 # Target topology:
 #   Databricks Serverless
-#       │  NCC PE rule (Resource ID of the transit PLS + Confluent FQDNs)
+#       │  NCC PE rule (targets Application Gateway v2's native Private Link)
 #       ▼
-#   Customer-owned transit: Standard LB + VMSS HAProxy + PLS
+#   Customer-owned Application Gateway v2 with TCP/TLS proxy listener
 #       │
 #       ▼
 #   Customer-owned PE → Confluent Cloud (via Confluent's PLS alias)
@@ -15,21 +15,22 @@
 #   Confluent Cloud cluster (LKC-XXXXX in a Confluent Network)
 #
 # Why this transit exists:
-#   - Databricks NCC private-endpoint rules accept only Azure Resource IDs,
-#     not Private Link Service aliases. Confluent Cloud publishes aliases
-#     across tenants, not Resource IDs — so NCC cannot attach directly.
-#   - The transit's PLS lives in the customer's tenant where the Resource ID
-#     is available; the transit's own PE attaches to Confluent via alias
-#     (the standard cross-tenant flow).
-#   - Result: the transit is an API-shape adapter between NCC ("Resource ID
-#     only") and Confluent ("alias only").
+#   See docs/why-transit.md for the full rationale.
+#   Short version: NCC accepts only Azure Resource IDs; Confluent
+#   publishes aliases; Standard LB can't have PE IPs as backends. Any
+#   one of those forces a customer-tenant L4 proxy. App Gateway v2
+#   TCP/TLS proxy (GA 2025-11-26) is the recommended managed-service
+#   implementation of that proxy role.
 #
-# Transit choice in this file: VMSS + HAProxy (Option B, GA, cheaper).
-# Option A (App Gateway v2 TCP/TLS proxy) is now GA and is the
-# recommended primary pattern when managed-service ops is preferred
-# over cost optimisation. To swap to App GW, change the module source
-# from `vmss-haproxy-transit` to `appgw-transit` and adjust the NCC
-# module's transit_mode from "pls" to "appgw".
+# Why App Gateway v2 over VMSS + HAProxy:
+#   - Managed PaaS — Microsoft patches, scales, monitors
+#   - Native Private Link inbound (no separate PLS resource needed)
+#   - Auto-scales 1→125 instances
+#   - First-party Azure compliance posture (MAS TRM 7.4 / 8.2 aligned)
+#   To swap back to VMSS + HAProxy (cost-saver, ~$60/mo vs ~$200/mo),
+#   change the `module "transit"` source to `vmss-haproxy-transit`,
+#   re-add the VMSS variables, and flip the NCC module's
+#   `transit_mode` from "appgw" to "pls".
 #
 # =============================================================================
 
@@ -40,6 +41,10 @@ terraform {
     azurerm = {
       source  = "hashicorp/azurerm"
       version = "~> 3.80"
+    }
+    azapi = {
+      source  = "azure/azapi"
+      version = "~> 2.0"
     }
     databricks = {
       source  = "databricks/databricks"
@@ -56,6 +61,10 @@ provider "azurerm" {
   features {}
   subscription_id = var.azure_subscription_id
 }
+
+# azapi provider needed because azurerm does not yet expose App Gateway v2
+# TCP listener configuration as a first-class resource type.
+provider "azapi" {}
 
 provider "databricks" {
   alias      = "account"
@@ -98,8 +107,9 @@ locals {
 
   # Schema Registry / KSQL / Connect REST live on separate FQDNs.
   # NOTE: Schema Registry uses a separate Confluent PLS — registering its
-  # FQDN here makes DNS resolve, but the transit module only proxies one
-  # port. A second proxy chain is required to actually carry SR traffic.
+  # FQDN here makes DNS resolve, but the App Gateway only proxies one
+  # backend. A second listener or a parallel transit is required to
+  # actually carry SR traffic.
   confluent_extra_fqdns = compact([
     var.confluent_schema_registry_fqdn, # e.g., "psrc-XXXXX.{region}.azure.confluent.cloud"
   ])
@@ -111,21 +121,24 @@ locals {
 }
 
 # =============================================================================
-# Transit infrastructure (LB + VMSS HAProxy + PLS + PE to Confluent)
+# Transit infrastructure (Application Gateway v2 TCP/TLS proxy + PE to Confluent)
 # =============================================================================
 #
 # This module:
 #   1. Creates a transit VNet (or reuses an existing one — see vars).
-#   2. Creates a Standard Internal LB.
-#   3. Creates a VMSS running HAProxy that proxies kafka_port TCP from the
-#      LB backend to the Confluent PE's private IP.
-#   4. Creates the Private Endpoint to Confluent (using Confluent's PLS
-#      alias).
-#   5. Creates the Private Link Service that fronts the LB — this is what
-#      Databricks' NCC will attach to.
+#   2. Creates three subnets: App Gateway data subnet, PE subnet for
+#      the connection to Confluent, App Gateway Private Link subnet.
+#   3. Creates the Application Gateway v2 with a TCP listener on
+#      kafka_port pointing at the Confluent PE's private IP as the
+#      backend.
+#   4. Creates the Private Endpoint to Confluent (using Confluent's
+#      PLS alias).
+#   5. Enables App Gateway's native Private Link configuration — App
+#      GW itself becomes the target the Databricks NCC PE rule attaches
+#      to, no separate PLS resource needed.
 
 module "transit" {
-  source = "../../modules/vmss-haproxy-transit"
+  source = "../../modules/appgw-transit"
 
   resource_group_name = azurerm_resource_group.transit.name
   location            = var.location
@@ -136,37 +149,20 @@ module "transit" {
   pe_request_message                   = var.pe_request_message
 
   # Network
-  create_vnet                  = var.create_vnet
-  vnet_name                    = var.vnet_name
-  vnet_address_space           = var.vnet_address_space
-  lb_subnet_address_prefix     = var.lb_subnet_address_prefix
-  pe_subnet_address_prefix     = var.pe_subnet_address_prefix
-  vmss_subnet_address_prefix   = var.vmss_subnet_address_prefix
-  existing_vnet_id             = var.existing_vnet_id
-  existing_vnet_resource_group = var.existing_vnet_resource_group
+  create_vnet                             = var.create_vnet
+  vnet_name                               = var.vnet_name
+  vnet_address_space                      = var.vnet_address_space
+  appgw_subnet_address_prefix             = var.appgw_subnet_address_prefix
+  pe_subnet_address_prefix                = var.pe_subnet_address_prefix
+  appgw_privatelink_subnet_address_prefix = var.appgw_privatelink_subnet_address_prefix
+  existing_vnet_id                        = var.existing_vnet_id
+  existing_vnet_resource_group            = var.existing_vnet_resource_group
 
-  # Load Balancer & data port
-  lb_name        = "lb-confluent-transit"
-  lb_frontend_ip = var.lb_frontend_ip
-  kafka_port     = var.kafka_port
-
-  # VMSS sizing
-  vmss_name                 = "vmss-haproxy-confluent"
-  vmss_sku                  = var.vmss_sku
-  vmss_instances            = var.vmss_instances
-  vmss_admin_ssh_public_key = var.vmss_admin_ssh_public_key
-
-  # PLS exposed to Databricks
-  pls_name         = "pls-confluent-transit"
-  pls_nat_ip_count = var.pls_nat_ip_count
-
-  # Restrict who can attach a PE to the transit PLS. Auto-approve
-  # Databricks' managed serverless subscription so the NCC PE rule comes
-  # up clean without manual intervention. Get the region-specific ID from
-  # the Databricks docs ("Microsoft Azure subscriptions used by Databricks
-  # managed services").
-  pls_visibility_subscription_ids    = [var.databricks_managed_subscription_id]
-  pls_auto_approval_subscription_ids = [var.databricks_managed_subscription_id]
+  # Application Gateway v2 & data port
+  appgw_name         = "appgw-confluent-transit"
+  appgw_sku_capacity = var.appgw_sku_capacity
+  appgw_frontend_ip  = var.appgw_frontend_ip
+  kafka_port         = var.kafka_port
 
   tags = local.tags
 }
@@ -177,14 +173,19 @@ module "transit" {
 #
 # This module:
 #   - Creates a new NCC (set ncc_name + region). If an existing NCC is
-#     being reused, replace this module call with a direct
-#     `databricks_mws_ncc_private_endpoint_rule` resource referencing the
-#     existing NCC's ID.
-#   - Creates the PE rule pointing at the transit's PLS.
+#     being reused, replace this module call with a direct REST API call
+#     (or once supported, a databricks_mws_ncc_private_endpoint_rule
+#     resource targeting App Gateway) against the existing NCC's ID.
+#   - Creates the PE rule pointing at the App Gateway's Resource ID.
 #   - Registers Confluent FQDNs via `additional_domain_names` so NCC's
 #     managed DNS injects PE-IP resolution for them.
-#   - Triggers PLS-side auto-approval for the Databricks-managed PE.
+#   - Triggers PE auto-approval on the App Gateway side.
 #   - Binds the NCC to the listed workspaces.
+#
+# NOTE: For App Gateway transit, the Databricks Terraform provider does
+# not yet support the PE rule resource type natively. The module falls
+# back to a REST API call, which requires `databricks_account_id` and
+# `databricks_host` (both passed below).
 
 module "ncc_pe_rule" {
   source = "../../modules/databricks-ncc-confluent"
@@ -196,11 +197,16 @@ module "ncc_pe_rule" {
   ncc_name = var.ncc_name
   region   = var.location
 
-  transit_mode        = "pls"
-  transit_resource_id = module.transit.pls_id
+  # App Gateway path: NCC PE rule targets the App GW's Resource ID and
+  # uses Databricks' REST API (no native terraform resource yet).
+  transit_mode          = "appgw"
+  transit_resource_id   = module.transit.appgw_id
+  databricks_account_id = var.databricks_account_id
+  databricks_host       = "https://accounts.azuredatabricks.net"
 
+  # For the auto-approval helper that the module runs after creating the PE rule
   transit_resource_group_name = azurerm_resource_group.transit.name
-  transit_resource_name       = module.transit.pls_name
+  transit_resource_name       = module.transit.appgw_name
   auto_approve_pe             = true
 
   # The module builds bootstrap + wildcard FQDNs from cluster_id and
@@ -213,12 +219,6 @@ module "ncc_pe_rule" {
 
   workspace_ids = var.databricks_workspace_ids
 
-  # group_id for customer-managed-PLS rules. The repo's module default is
-  # "confluent-kafka" (legacy Databricks-internal name). The canonical
-  # current value is "azure_private_link_service". If terraform apply
-  # fails with a 4xx on the NCC PE rule, swap by overriding here:
-  # group_id = "azure_private_link_service"
-
   depends_on = [module.transit]
 }
 
@@ -226,24 +226,19 @@ module "ncc_pe_rule" {
 # Outputs
 # =============================================================================
 
-output "transit_pls_id" {
-  description = "Resource ID of the transit PLS. This is what the NCC PE rule targets."
-  value       = module.transit.pls_id
+output "transit_appgw_id" {
+  description = "Resource ID of the App Gateway. This is what the NCC PE rule targets."
+  value       = module.transit.appgw_id
 }
 
-output "transit_pls_name" {
-  description = "Name of the transit PLS."
-  value       = module.transit.pls_name
+output "transit_appgw_name" {
+  description = "Name of the transit App Gateway."
+  value       = module.transit.appgw_name
 }
 
-output "transit_lb_frontend_ip" {
-  description = "Private IP of the transit load balancer frontend."
-  value       = module.transit.lb_frontend_ip
-}
-
-output "confluent_pe_private_ip" {
-  description = "Private IP of the PE connecting the transit to Confluent Cloud. Useful for HAProxy config debugging."
-  value       = module.transit.confluent_pe_private_ip
+output "transit_frontend_ip" {
+  description = "Private IP of the App Gateway frontend."
+  value       = module.transit.frontend_ip
 }
 
 output "ncc_id" {
