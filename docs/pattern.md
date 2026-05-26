@@ -136,14 +136,14 @@ If a customer ever does need Databricks → Connect REST, it would be a *second*
 
 ## Validated evidence
 
-Two Databricks Serverless Job runs prove the pattern works end-to-end in a real Azure subscription. Both runs live in workspace `dbc-davidokeeffe-demo-05` (sandbox, FE-only access). They're durable; you can open them in the Jobs UI today.
+Two Databricks Serverless Job runs prove the pattern works end-to-end in a real Azure subscription. Each successful run produces a durable, shareable URL in the workspace Jobs UI of the form `<workspace-host>/jobs/runs/<run-id>`.
 
-| Job Run | What it proves |
+| Test | What it proves |
 |---|---|
-| `/jobs/runs/960142729623717` | **L1-L4 network + TLS path.** TLS 1.3 handshake between Spark Connect and a self-signed TLS backend (socat OPENSSL-LISTEN) completes through the App Gateway TCP/TLS listener. Cipher `TLS_AES_256_GCM_SHA384`. Peer cert returned to client is the backend's. App GW never sees plaintext. |
-| `/jobs/runs/663447425953447` | **L5-L8 Kafka protocol.** Spark's `df.write.format("kafka")` produces 20 messages to a topic; `spark.read.format("kafka")` consumes them back. 20/20 match. Validates the two-hop FQDN re-resolution behaviour (bootstrap → metadata → re-dial advertised.listeners → second connection through same NCC + App GW path). |
+| **L1-L4 — Network + TLS path** (`submit_job.py`) | TLS 1.3 handshake between a Serverless worker and a self-signed TLS backend (socat OPENSSL-LISTEN) completes through the App Gateway TCP/TLS listener. Cipher `TLS_AES_256_GCM_SHA384`. Peer cert returned to client is the backend's. App GW never sees plaintext. |
+| **L5-L8 — Kafka protocol** (`submit_kafka_job.py`) | Spark's `df.write.format("kafka")` produces N messages to a topic; `spark.read.format("kafka")` consumes them back; full round-trip match. Validates the two-hop FQDN re-resolution behaviour (bootstrap → metadata → re-dial `advertised.listeners` → second connection through the same NCC + App GW path). |
 
-Reproduce either against your own workspace with `examples/appgw-smoke-test/submit_job.py` (TLS) or `examples/appgw-smoke-test/submit_kafka_job.py` (Kafka).
+Reproduce either against your own workspace with `examples/appgw-smoke-test/submit_job.py` (TLS) or `examples/appgw-smoke-test/submit_kafka_job.py` (Kafka). Both print the workspace-side run URL on success.
 
 ## The deployment gotchas (the 12-item checklist)
 

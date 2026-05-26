@@ -602,8 +602,7 @@ output "validation_commands" {
       --query "[0].privateEndpointConnections[].{name:name, status:privateLinkServiceConnectionState.status}" \
       -o table
 
-    # Workspace URL (for opening a notebook):
-    https://accounts.azuredatabricks.net  -> select workspace dbc-davidokeeffe-demo-05
+    # Workspace URL (for opening a notebook): the workspace bound to the NCC above.
 
   EOT
 }
