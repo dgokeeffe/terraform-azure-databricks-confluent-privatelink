@@ -2,6 +2,15 @@
 
 This repository provides Terraform modules to establish private connectivity from **Databricks Serverless Compute** to **Confluent Cloud Kafka** on Azure using a transit architecture with Azure Private Link.
 
+## 🚀 Start here
+
+- **[`docs/pattern.md`](docs/pattern.md)** — the distilled pattern reference. Read this first if you're applying this architecture to a customer.
+- **[`docs/why-transit.md`](docs/why-transit.md)** — the long-form rationale for the three constraints that make the transit mandatory, and the place Kafka Connect on Kubernetes fits (or doesn't) in this picture.
+- **[`examples/appgw-smoke-test/`](examples/appgw-smoke-test/)** — self-contained validated harness; clone and deploy in any Azure sub for an end-to-end proof.
+- **[`examples/full-stack/`](examples/full-stack/)** — production caller wiring all modules together.
+
+Validated end-to-end via two Databricks Serverless Job runs covering both the L1-L4 network/TLS path and the L5-L8 Kafka producer/consumer path — see [`docs/pattern.md`](docs/pattern.md#validated-evidence) for details and reproducibility instructions.
+
 ## Why a transit architecture?
 
 Databricks Serverless Compute connects to external services via **NCC Private Endpoint Rules**. These rules target either a **Private Link Service (PLS)** or an **Application Gateway v2** in your subscription. Since Confluent Cloud is a SaaS service reachable only via Private Endpoint, we need a transit layer between the NCC PE and the Confluent PE.
