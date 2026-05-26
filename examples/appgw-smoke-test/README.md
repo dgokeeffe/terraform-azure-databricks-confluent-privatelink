@@ -25,6 +25,47 @@ durable, auditable evidence that anyone with workspace access can inspect:
 https://adb-<workspace-id>.<shard>.azuredatabricks.net/jobs/runs/<run-id>
 ```
 
+### Optional: Kafka producer + consumer validation
+
+The L1-L4 smoke test above uses a mock TLS-echo backend (socat). For a
+deeper proof that exercises the full Kafka wire protocol, swap the backend
+for a real Apache Kafka broker:
+
+```bash
+# 1. Replace socat with Apache Kafka 3.7 (KRaft mode) on the backend VM.
+#    A reference install script lives at /tmp/install-kafka.sh in this
+#    session — or write your own to: install Java 17, download Kafka,
+#    configure server.properties with
+#      advertised.listeners=PLAINTEXT://<your test_fqdn>:9092
+#    and start as a systemd unit.
+#    Add /etc/hosts entry on the VM so local admin tools can resolve the
+#    advertised FQDN to 127.0.0.1.
+
+# 2. Submit a Spark Kafka producer + consumer Job from Serverless:
+export DATABRICKS_HOST=https://adb-<your-workspace>.azuredatabricks.net
+uv run python submit_kafka_job.py
+```
+
+The submitter:
+- Uploads a notebook to `/Users/<your-email>/kafka-producer-consumer-smoke-test`
+- Submits a one-time Serverless Job
+- The notebook produces N rows to the topic via `df.write.format("kafka")`,
+  reads them back via `spark.read.format("kafka")`, and verifies a full
+  round-trip match
+- Returns a Jobs run URL
+
+A successful run validates additional layers that the socat test cannot:
+
+| Layer | What it proves |
+|---|---|
+| **L5 — Kafka bootstrap** | Spark client opens initial connection to `bootstrap.servers` through the proxy |
+| **L6 — Metadata response handling** | Broker returns `advertised.listeners` matching the registered NCC FQDN; client re-resolves and connects via the same NCC + App GW path |
+| **L7 — Produce request** | Spark's `df.write.format("kafka")` lands rows on the broker through the proxy |
+| **L8 — Fetch request** | Spark's `spark.read.format("kafka")` retrieves rows through the proxy |
+
+This validates the most production-realistic behaviour — the same
+two-hop FQDN re-resolution Confluent Cloud clients perform.
+
 ## What this does NOT yet validate
 
 These layers are independent of the App Gateway TCP/TLS proxy mechanism and
