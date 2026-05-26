@@ -1,0 +1,68 @@
+# =============================================================================
+# Full-stack — Databricks Serverless → Confluent Cloud (Azure)
+# Copy this file to terraform.tfvars and fill in the placeholders.
+# =============================================================================
+
+# ---- Identity / scoping ---------------------------------------------------
+
+azure_subscription_id = "00000000-0000-0000-0000-000000000000"  # Azure sub-ID for the transit
+location              = "australiaeast"
+environment           = "prod"
+resource_group_name   = "rg-confluent-transit"
+name_prefix           = ""
+pe_request_message    = "Databricks serverless connectivity via transit architecture; change ref: CHG0123456"
+
+extra_tags = {
+  CostCenter = "data-platform"
+  Owner      = "data-platform@example.com"
+}
+
+# ---- Confluent Cloud target ----------------------------------------------
+
+# Cluster FQDN structure (for clusters in a Confluent Network):
+#   {cluster-id}.{network-id}.{region}.azure.confluent.cloud
+confluent_cluster_id = "lkc-XXXXXX"
+confluent_network_id = "XXXXXXXXXX"
+
+# Fetch from: Confluent Cloud Console
+#   -> Cluster -> Settings -> Networking -> Private Link
+#   -> Azure Private Link Service alias
+confluent_private_link_service_alias = "s-XXXXX.privatelink.confluent.cloud"
+
+# Optional: Confluent Cloud Schema Registry FQDN
+# (leave empty if not using Avro/Protobuf/JSON-Schema topics)
+confluent_schema_registry_fqdn = ""  # "psrc-XXXXX.<region>.azure.confluent.cloud"
+
+# ---- Transit VNet ---------------------------------------------------------
+
+create_vnet                = true
+vnet_name                  = "vnet-confluent-transit"
+vnet_address_space         = ["10.220.0.0/16"]
+lb_subnet_address_prefix   = "10.220.1.0/27"
+pe_subnet_address_prefix   = "10.220.2.0/28"
+vmss_subnet_address_prefix = "10.220.3.0/27"
+
+# If reusing an existing VNet, flip create_vnet = false and set:
+# existing_vnet_id             = "/subscriptions/.../resourceGroups/.../providers/Microsoft.Network/virtualNetworks/..."
+# existing_vnet_resource_group = "rg-network-hub"
+
+# ---- VMSS / HAProxy -------------------------------------------------------
+
+vmss_sku         = "Standard_B2s"
+vmss_instances   = 2
+kafka_port       = 9092
+pls_nat_ip_count = 1
+
+# Generate with: ssh-keygen -t ed25519 -C "haproxy-vmss" -f ./haproxy-vmss
+vmss_admin_ssh_public_key = "ssh-ed25519 AAAA... haproxy-vmss"
+
+# ---- Databricks ------------------------------------------------------------
+
+databricks_account_id    = "00000000-0000-0000-0000-000000000000"
+databricks_workspace_ids = ["1234567890123456"]
+ncc_name                 = "ncc-confluent"
+
+# Databricks' managed serverless sub-ID for the target region.
+# Source of truth (verify before applying):
+#   https://learn.microsoft.com/en-us/azure/databricks/resources/azure-subscriptions
+databricks_managed_subscription_id = "00000000-0000-0000-0000-000000000000"
