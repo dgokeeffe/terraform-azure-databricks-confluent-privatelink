@@ -136,6 +136,69 @@ when full control over the proxy's runtime behaviour is required.
 > [TCP/TLS proxy overview](https://learn.microsoft.com/en-us/azure/application-gateway/tcp-tls-proxy-overview)).
 > Refresh `RESPONSE.md` before re-using its language with a customer.
 
+## Validated end-to-end
+
+The repo includes [`examples/appgw-smoke-test/`](../examples/appgw-smoke-test/),
+a self-contained terraform + Python test harness that proves the core
+architecture works end-to-end. Output of a successful run includes a
+Databricks Jobs URL that's openable in the workspace UI — durable proof
+anyone with workspace access can audit.
+
+What that test validates:
+
+1. **NCC DNS injection** — registered FQDNs resolve to a Databricks-managed
+   PE IP from inside Serverless compute.
+2. **PE → App GW TCP path** — Serverless container opens a TCP socket via
+   the NCC PE, traffic traverses Azure backbone, lands on the App GW
+   frontend.
+3. **TCP/TLS passthrough** — a TLS 1.3 handshake completes intact through
+   the App GW listener; the peer cert returned to the client is the
+   *backend's* cert. App GW never terminates or sees plaintext.
+4. **Round-trip echo** — bidirectional bytes traverse the full chain
+   unchanged.
+
+See the smoke-test directory's [README](../examples/appgw-smoke-test/README.md)
+for the 12 deployment gotchas encountered and documented during validation.
+
+## Kafka Connect on Kubernetes — what's its place in this architecture?
+
+A common customer requirement adjacent to "Databricks → Confluent Cloud
+Kafka over Private Link" is that Kafka **Connect** workers run on a
+customer-owned AKS cluster. This is sometimes framed as a connectivity
+requirement, but it's usually a *parallel* infrastructure concern with no
+overlap on the Databricks-side network path.
+
+Connect is the data-integration tier — connectors source data from
+operational systems (Oracle CDC via Debezium, Salesforce, S3, application
+events) and push it to Kafka topics; sink connectors read from topics and
+push downstream. Connect workers run on AKS because the **source** systems
+are on-prem or in the customer VNet, not because Confluent Cloud requires
+it.
+
+Three sub-questions usually hide inside "we need Kafka Connect on K8s
+connectivity":
+
+1. **Connect workers on AKS reaching Confluent Cloud brokers** — Connect
+   workers are just Kafka clients. They need outbound connectivity from
+   AKS to Confluent's PLS (typically via a customer-owned PE in the AKS
+   VNet). This is the customer's own network setup, separate from the
+   Databricks NCC path.
+2. **Operators / CI/CD reaching Connect's REST API on port 8083** — this
+   is the customer's intranet problem (internal load balancer, Azure
+   Bastion, etc.), unrelated to Databricks.
+3. **Databricks calling Connect's REST API** — almost never. Databricks
+   consumes topics (Spark Kafka source); it does not manage Connector
+   lifecycles. If a customer ever did want Databricks → Connect REST,
+   it would be a *second* NCC PE rule pointing at a *separate* transit
+   to the Connect REST endpoint, on a different port. This is rare
+   enough to defer until specifically asked for.
+
+**Conclusion:** for the architecture in this repo (Databricks Serverless
+→ Confluent Cloud Kafka), Kafka Connect on AKS is parallel infrastructure
+that lives entirely on the customer side. It does not change the App GW
++ NCC + PE pattern. Customers can adopt Connect on AKS independently of
+when/how they wire up Databricks-to-Kafka connectivity.
+
 ## See also
 
 - [`README.md`](../README.md) — top-level architecture diagrams for both transit options.
