@@ -92,7 +92,7 @@ Three independent constraints all force it:
 | (b) | **The provider's PLS visibility allow-list rarely includes Databricks' managed serverless subscription IDs** | Even if NCC could accept aliases, the PE creation would be rejected |
 | (c) | **Azure Standard Load Balancer cannot have Private Endpoint IPs as backend pool members** | A naive "SLB → backend = provider PE IP" design fails at provisioning |
 
-A customer-tenant App Gateway in the middle satisfies all three: NCC targets a Resource ID Coles owns, the App GW backend can be a PE IP (unlike Standard LB), and Coles' visibility on the App GW is theirs to control.
+A customer-tenant App Gateway in the middle satisfies all three: NCC targets a Resource ID the customer owns, the App GW backend can be a PE IP (unlike Standard LB), and the customer's visibility on the App GW is theirs to control.
 
 See [`why-transit.md`](why-transit.md) for the long-form rationale.
 
