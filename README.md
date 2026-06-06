@@ -6,6 +6,7 @@ This repository provides Terraform modules to establish private connectivity fro
 
 - **[`docs/pattern.md`](docs/pattern.md)** — the distilled pattern reference. Read this first if you're applying this architecture to a customer.
 - **[`docs/why-transit.md`](docs/why-transit.md)** — the long-form rationale for the three constraints that make the transit mandatory, and the place Kafka Connect on Kubernetes fits (or doesn't) in this picture.
+- **[`docs/service-direct-privatelink.md`](docs/service-direct-privatelink.md)** — companion reference on the *inbound* "service-direct" Private Link path for performance-intensive services (Zerobus Ingest, Lakebase Autoscaling). Distinct from this repo's outbound Serverless → Kafka path; read it to avoid conflating the two.
 - **[`examples/appgw-smoke-test/`](examples/appgw-smoke-test/)** — self-contained validated harness; clone and deploy in any Azure sub for an end-to-end proof.
 - **[`examples/full-stack/`](examples/full-stack/)** — production caller wiring all modules together.
 
