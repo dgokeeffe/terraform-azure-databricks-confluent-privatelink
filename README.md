@@ -106,6 +106,7 @@ Databricks Serverless
 | `vmss-haproxy-transit` | Standard LB + VMSS HAProxy + PLS + Confluent PE |
 | `databricks-ncc-confluent` | Databricks NCC with PE rule (supports both transit modes) |
 | `confluent-dns` | Private DNS Zone for classic compute (optional) |
+| `databricks-service-direct` | **Inbound** "service-direct" Private Link to performance-intensive services (Zerobus, Lakebase) — separate from the outbound Kafka path; see [`docs/service-direct-privatelink.md`](docs/service-direct-privatelink.md) |
 
 ## Prerequisites
 
