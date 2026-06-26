@@ -51,7 +51,7 @@ output "frontend_ip" {
 }
 
 output "unused_public_ip_id" {
-  description = "Unused public IP required for Application Gateway Private Link compatibility"
+  description = "Unused public IP required by Application Gateway Standard_v2; no listener should bind to it"
   value       = azurerm_public_ip.appgw_management.id
 }
 
@@ -85,7 +85,7 @@ output "connection_summary" {
       private_frontend_ip   = var.appgw_frontend_ip
       unused_public_ip_id   = azurerm_public_ip.appgw_management.id
       private_link_group_id = "frontend-private"
-      note                  = "Kafka listener is private only; unused public IP exists because App Gateway Private Link is unsupported on private-only gateways."
+      note                  = "Kafka listener is private only; unused public IP exists because Application Gateway Standard_v2 requires it. Keep the public frontend unused and deny Internet inbound with an NSG."
     }
 
     next_steps = [

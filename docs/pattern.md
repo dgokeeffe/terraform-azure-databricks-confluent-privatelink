@@ -28,17 +28,23 @@ Databricks serverless job or notebook
 A strict "no public IP resource on Application Gateway" requirement conflicts
 with the App Gateway Private Link path that Databricks NCC needs.
 
-Microsoft documents that Application Gateway private-only deployments are
-generally available, but Private Link configuration for tunneling traffic
-through private endpoints to Application Gateway is unsupported with
-private-only gateways. Because Databricks NCC reaches Application Gateway
-through that Private Link feature, this repo models the viable App Gateway
-shape:
+In a live Azure proof in `australiaeast`, private-only `Standard_v2`
+Application Gateway deployment failed with:
+
+```text
+Application Gateway ... does not support Application Gateway without Public IP
+for the selected SKU tier Standard_v2. Supported SKU tiers are Standard,WAF.
+```
+
+Because this repo uses Application Gateway v2 TCP/TLS proxy behavior, this repo
+models the viable App Gateway shape:
 
 - No public Kafka listener.
 - No public Kafka ingress path.
-- An unused public IP resource exists on the Application Gateway so Private
-  Link can be enabled.
+- An unused public IP resource exists on the Application Gateway because
+  `Standard_v2` requires it.
+- The Application Gateway subnet has an NSG that denies inbound traffic from
+  the `Internet` service tag.
 
 If a security standard forbids the existence of any public IP resource, use a
 customer-owned Azure Private Link Service in front of a TCP proxy instead of
@@ -153,11 +159,34 @@ Minimum proof for a customer conversation:
    consumer calls succeed using the Confluent bootstrap server.
 5. The test writes to and reads from a real topic, proving bootstrap plus broker
    metadata re-resolution.
+6. If Application Gateway has the required public IP fallback, the public
+   frontend has no listeners and an NSG explicitly denies inbound `Internet`
+   traffic.
 
 The included `examples/appgw/kafka_topic_smoke_test.py` notebook is the minimal
 topic-level test for steps 4 and 5. Use an existing topic and Confluent
 credentials with produce and consume rights. A successful run prints the unique
 key and value that were written and read back.
+
+## Live proof summary
+
+The proof deployment used a private HTTP backend so the Databricks/App Gateway
+path could be tested without depending on Confluent credentials. The important
+evidence was:
+
+- Private-only `Standard_v2` Application Gateway failed validation, so the
+  public-IP fallback is required for this SKU.
+- Application Gateway `agw-nccproof05` deployed with private frontend
+  `frontend-private` and unused public frontend `frontend-public-unused`.
+- The only listener was bound to `frontend-private`.
+- Databricks NCC private endpoint rule for `frontend-private` reached
+  `ESTABLISHED`.
+- Workspace `dbc-davidokeeffe-demo-05` was bound to the NCC.
+- A Databricks serverless job resolved `agw-nccproof05.dbxdemo.net` to private
+  IP `172.22.112.8` and returned HTTP `200` from the private backend.
+- NSG `nsg-nccproof-appgw` was attached to the Application Gateway subnet with
+  `Deny-Internet-Inbound` from source `Internet`.
+- A direct proxy-bypassed request to the public IP on port 80 failed to connect.
 
 ## References
 

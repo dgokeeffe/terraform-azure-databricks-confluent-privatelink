@@ -18,14 +18,17 @@ shape. It is not a full enterprise landing zone module.
 
 The exact design "Application Gateway with no public IP resource, exposed to
 Databricks NCC through Application Gateway Private Link" is not currently a
-valid Azure Application Gateway design.
+valid Azure Application Gateway v2 design.
 
-Azure Application Gateway supports private-only deployments, but Microsoft
-documents that Application Gateway Private Link is unsupported with a
-private-only gateway. Databricks NCC reaches Application Gateway through that
-Private Link feature. In practice, the App Gateway pattern requires an
-Application Gateway that has no public listener for Kafka traffic, but still has
-an unused public IP resource so Private Link can be enabled.
+In a live Azure proof against `australiaeast`, Azure rejected a private-only
+`Standard_v2` Application Gateway with Private Link enabled because the selected
+SKU tier requires a public IP. The viable App Gateway pattern is therefore:
+
+- Application Gateway has the required public IP resource.
+- No listener or routing rule is attached to the public frontend.
+- The private listener is the only listener used by Databricks traffic.
+- The Application Gateway subnet has an NSG that explicitly denies inbound
+  traffic from the `Internet` service tag.
 
 If the enterprise requirement is strictly "no public IP resource may exist",
 use a customer-owned Azure Private Link Service in front of a TCP proxy instead
@@ -40,6 +43,7 @@ of Application Gateway. That is a different pattern.
 | `examples/appgw` | Minimal caller that wires the two modules together. |
 | `examples/appgw/kafka_topic_smoke_test.py` | Databricks notebook-style smoke test that writes to and reads from a Kafka topic. |
 | `docs/pattern.md` | Architecture notes, enterprise assumptions, and Kafka connectivity details. |
+| `docs/enterprise-implementation.md` | Step-by-step enterprise implementation guide, including the proven App Gateway fallback and validation gates. |
 
 ## Confluent Cloud connectivity model
 
