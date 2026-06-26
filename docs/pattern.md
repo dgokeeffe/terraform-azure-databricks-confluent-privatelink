@@ -153,3 +153,8 @@ Minimum proof for a customer conversation:
    consumer calls succeed using the Confluent bootstrap server.
 5. The test writes to and reads from a real topic, proving bootstrap plus broker
    metadata re-resolution.
+
+The included `examples/appgw/kafka_topic_smoke_test.py` notebook is the minimal
+topic-level test for steps 4 and 5. Use an existing topic and Confluent
+credentials with produce and consume rights. A successful run prints the unique
+key and value that were written and read back.

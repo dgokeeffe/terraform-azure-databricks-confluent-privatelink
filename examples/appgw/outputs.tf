@@ -59,5 +59,3 @@ output "spark_kafka_options" {
   description = "Spark DataFrame options for Kafka (fill in API key/secret)"
   value       = module.databricks_ncc.spark_kafka_options
 }
-
-# =============================================================================
