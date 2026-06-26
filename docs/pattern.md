@@ -146,8 +146,8 @@ consumer operation.
 Minimum proof for a customer conversation:
 
 1. Terraform creates the transit VNet, Application Gateway, Confluent private
-   endpoints, NCC, NCC private endpoint rule, and workspace binding.
-2. Confluent private endpoint connections show `Approved`.
+   endpoint, NCC, NCC private endpoint rule, and workspace binding.
+2. Confluent private endpoint connection shows `Approved`.
 3. Databricks NCC private endpoint connection shows established/approved.
 4. From Databricks serverless compute, DNS resolution and Kafka producer or
    consumer calls succeed using the Confluent bootstrap server.
@@ -158,3 +158,10 @@ The included `examples/appgw/kafka_topic_smoke_test.py` notebook is the minimal
 topic-level test for steps 4 and 5. Use an existing topic and Confluent
 credentials with produce and consume rights. A successful run prints the unique
 key and value that were written and read back.
+
+## References
+
+- Microsoft Learn: [Private Application Gateway deployment](https://learn.microsoft.com/en-us/azure/application-gateway/application-gateway-private-deployment).
+- Microsoft Learn: [Application Gateway TCP/TLS proxy overview](https://learn.microsoft.com/en-us/azure/application-gateway/tcp-tls-proxy-overview).
+- Microsoft Learn: [Azure Databricks serverless private connectivity](https://learn.microsoft.com/en-us/azure/databricks/security/network/serverless-network-security/serverless-private-link).
+- Confluent Docs: [Azure Private Link connections with Confluent Cloud](https://docs.confluent.io/cloud/current/networking/private-links/azure-privatelink.html).

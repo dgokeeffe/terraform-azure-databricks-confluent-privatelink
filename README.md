@@ -96,8 +96,8 @@ terraform apply
 
 After apply:
 
-1. Approve the Confluent private endpoint connections in Confluent Cloud if they
-   are not auto-approved.
+1. Approve the Confluent private endpoint connection in Confluent Cloud if it
+   is not auto-approved.
 2. Approve the Databricks private endpoint connection on the Application Gateway
    if required by Azure.
 3. Run a Databricks serverless job or notebook using the Confluent bootstrap
@@ -142,3 +142,10 @@ options = {
 - Kafka Connect on AKS.
 - Schema Registry private connectivity.
 - Strict no-public-IP designs using Private Link Service plus a TCP proxy.
+
+## References
+
+- Microsoft Learn: [Private Application Gateway deployment](https://learn.microsoft.com/en-us/azure/application-gateway/application-gateway-private-deployment).
+- Microsoft Learn: [Application Gateway TCP/TLS proxy overview](https://learn.microsoft.com/en-us/azure/application-gateway/tcp-tls-proxy-overview).
+- Microsoft Learn: [Azure Databricks serverless private connectivity](https://learn.microsoft.com/en-us/azure/databricks/security/network/serverless-network-security/serverless-private-link).
+- Confluent Docs: [Azure Private Link connections with Confluent Cloud](https://docs.confluent.io/cloud/current/networking/private-links/azure-privatelink.html).

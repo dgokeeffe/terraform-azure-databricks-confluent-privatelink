@@ -90,7 +90,7 @@ output "connection_summary" {
 
     next_steps = [
       "1. Approve PE connection in Confluent Cloud Console",
-      "2. Create Databricks NCC using databricks-ncc-confluent module with transit_mode = appgw",
+      "2. Create Databricks NCC using the databricks-ncc-confluent module",
       "3. Verify NCC PE status is ESTABLISHED",
       "4. Test Kafka connectivity from serverless compute"
     ]
