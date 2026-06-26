@@ -82,7 +82,43 @@ confluent_ncc_domain_names = [
 Use the values from the Confluent Cloud networking details page for your
 cluster. The example above is illustrative only.
 
-## Minimal deployment
+## How to use this repo
+
+### 1. Confirm the design fit
+
+Use this repo when you need to demonstrate Databricks serverless private
+connectivity to Confluent Cloud Kafka through a customer-owned Application
+Gateway.
+
+Do not use this repo as-is when the security requirement is "no public IP
+resource may exist anywhere on Application Gateway." That stricter requirement
+needs a different transit design, such as a customer-owned Private Link Service
+fronting a TCP proxy.
+
+### 2. Collect required values
+
+From Databricks:
+
+- Account ID.
+- Workspace ID for each workspace that should use the NCC.
+- Account-admin authentication for the Databricks account API.
+
+From Confluent Cloud:
+
+- Kafka bootstrap server, including port.
+- Azure Private Link service alias for the target Kafka cluster zone.
+- DNS domain/subdomain values that Kafka clients will dial.
+- API key/secret with produce and consume rights on the test topic.
+
+From Azure:
+
+- Subscription and resource group target.
+- Region aligned to the Databricks workspace and Confluent network.
+- Address ranges for the transit VNet and subnets.
+- Permission to create Application Gateway, Private Endpoint, Public IP, and
+  networking resources.
+
+### 3. Deploy the Terraform example
 
 ```bash
 cd examples/appgw
@@ -94,16 +130,31 @@ terraform plan
 terraform apply
 ```
 
-After apply:
+The important `terraform.tfvars` fields are:
+
+```hcl
+databricks_account_id = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+databricks_workspace_ids = ["1234567890123456"]
+
+confluent_private_link_service_alias = "s-xxxxx.privatelink.confluent.cloud"
+confluent_bootstrap_servers          = "lkc-123abc-4kgzg.eastus.azure.confluent.cloud:9092"
+confluent_ncc_domain_names = [
+  "lkc-123abc-4kgzg.eastus.azure.confluent.cloud",
+  "*.4kgzg.eastus.azure.confluent.cloud",
+]
+```
+
+### 4. Approve and verify private endpoints
 
 1. Approve the Confluent private endpoint connection in Confluent Cloud if it
    is not auto-approved.
 2. Approve the Databricks private endpoint connection on the Application Gateway
    if required by Azure.
-3. Run a Databricks serverless job or notebook using the Confluent bootstrap
-   server and SASL_SSL credentials.
+3. In the Databricks account console, verify the NCC private endpoint rule is
+   established or approved.
+4. Confirm the target workspaces are bound to the NCC.
 
-## Topic smoke test
+### 5. Run the topic smoke test
 
 Run `examples/appgw/kafka_topic_smoke_test.py` on Databricks serverless compute
 after the private endpoint connections are approved. It writes a unique key to
