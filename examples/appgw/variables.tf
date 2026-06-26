@@ -23,18 +23,18 @@ variable "databricks_workspace_ids" {
 }
 
 variable "confluent_private_link_service_alias" {
-  description = "Confluent Cloud Private Link Service alias (s-xxxxx.privatelink.confluent.cloud)"
+  description = "Confluent Cloud Private Link Service alias for the Kafka cluster zone used by this core demonstrator"
   type        = string
 }
 
-variable "confluent_cluster_id" {
-  description = "Confluent cluster ID (e.g., pkc-xxxxx or lkc-xxxxx)"
+variable "confluent_bootstrap_servers" {
+  description = "Confluent bootstrap servers from the Confluent console, including port"
   type        = string
 }
 
-variable "confluent_region" {
-  description = "Confluent Cloud region (usually matches Azure region)"
-  type        = string
+variable "confluent_ncc_domain_names" {
+  description = "Confluent FQDNs and wildcard domains that Databricks NCC must intercept"
+  type        = list(string)
 }
 
 # =============================================================================
@@ -82,9 +82,9 @@ variable "appgw_privatelink_subnet_address_prefix" {
 }
 
 variable "appgw_frontend_ip" {
-  description = "Static private IP for App GW frontend. Leave empty for dynamic."
+  description = "Static private IP for App GW Kafka listener frontend."
   type        = string
-  default     = ""
+  default     = "10.200.1.10"
 }
 
 # =============================================================================
@@ -101,22 +101,6 @@ variable "appgw_sku_capacity" {
   description = "App Gateway instance count"
   type        = number
   default     = 2
-}
-
-variable "broker_count" {
-  description = "Number of Kafka brokers (for DNS records)"
-  type        = number
-  default     = 6
-}
-
-# =============================================================================
-# Optional features
-# =============================================================================
-
-variable "enable_dns_zone" {
-  description = "Create Private DNS Zone for classic compute access"
-  type        = bool
-  default     = true
 }
 
 variable "auto_approve_databricks_pe" {

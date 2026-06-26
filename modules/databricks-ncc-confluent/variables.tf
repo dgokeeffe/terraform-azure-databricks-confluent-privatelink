@@ -13,39 +13,24 @@ variable "region" {
   type        = string
 }
 
-variable "transit_mode" {
-  description = <<-EOT
-    Transit architecture mode:
-    - "pls": Private Link Service (used with vmss-haproxy-transit module)
-    - "appgw": Application Gateway v2 (used with appgw-transit module)
-  EOT
-  type        = string
-  default     = "pls"
-
-  validation {
-    condition     = contains(["pls", "appgw"], var.transit_mode)
-    error_message = "transit_mode must be either 'pls' or 'appgw'."
-  }
-}
-
 variable "transit_resource_id" {
-  description = "Resource ID of the transit resource (PLS ID for pls mode, App GW ID for appgw mode)"
+  description = "Resource ID of the Application Gateway used as the NCC private endpoint target"
   type        = string
 }
 
-variable "confluent_cluster_id" {
-  description = "Confluent cluster ID (e.g., pkc-xxxxx)"
+variable "confluent_bootstrap_servers" {
+  description = "Confluent bootstrap servers value to use in Kafka clients, including port"
   type        = string
+}
+
+variable "confluent_ncc_domain_names" {
+  description = "Confluent FQDNs and wildcard domains that Databricks NCC must intercept"
+  type        = list(string)
 
   validation {
-    condition     = can(regex("^(pkc|lkc)-[a-z0-9]+$", var.confluent_cluster_id))
-    error_message = "Confluent cluster ID must be in format: pkc-xxxxx or lkc-xxxxx"
+    condition     = length(var.confluent_ncc_domain_names) > 0
+    error_message = "At least one Confluent NCC domain name must be provided."
   }
-}
-
-variable "confluent_region" {
-  description = "Confluent Cloud region (e.g., eastus, westus2)"
-  type        = string
 }
 
 variable "workspace_ids" {
@@ -59,7 +44,7 @@ variable "workspace_ids" {
 }
 
 # =============================================================================
-# PE approval configuration (PLS mode)
+# PE approval configuration
 # =============================================================================
 
 variable "transit_resource_group_name" {
@@ -68,7 +53,7 @@ variable "transit_resource_group_name" {
 }
 
 variable "transit_resource_name" {
-  description = "Name of the transit resource (PLS name or App GW name) for PE approval"
+  description = "Name of the Application Gateway for PE approval"
   type        = string
 }
 
@@ -79,7 +64,7 @@ variable "auto_approve_pe" {
 }
 
 # =============================================================================
-# App GW mode configuration
+# App Gateway REST API configuration
 # =============================================================================
 
 variable "databricks_account_id" {
@@ -104,13 +89,13 @@ variable "databricks_host" {
 # =============================================================================
 
 variable "additional_domain_names" {
-  description = "Additional domain names to add to the NCC PE rule (beyond bootstrap and wildcard)"
+  description = "Additional domain names to add to the NCC PE rule"
   type        = list(string)
   default     = []
 }
 
 variable "group_id" {
-  description = "Group ID for the private endpoint rule"
+  description = "Application Gateway private link group ID. This must match the frontend IP configuration name exposed through Private Link."
   type        = string
-  default     = "confluent-kafka"
+  default     = "frontend-private"
 }

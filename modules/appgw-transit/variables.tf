@@ -14,10 +14,9 @@ variable "location" {
 
 variable "confluent_private_link_service_alias" {
   description = <<-EOT
-    Confluent Cloud Private Link Service alias.
-    Find this in Confluent Cloud Console:
-    Cluster -> Settings -> Networking -> Private Link -> Azure Private Link Service alias
-    Format: s-xxxxx.privatelink.confluent.cloud
+    Confluent Cloud Private Link Service alias for the Kafka cluster zone used
+    by this core demonstrator. Find this in Confluent Cloud Console under
+    Cluster -> Networking -> Details -> Service aliases.
   EOT
   type        = string
 
@@ -143,9 +142,14 @@ variable "appgw_sku_capacity" {
 }
 
 variable "appgw_frontend_ip" {
-  description = "Static private IP for App Gateway frontend (must be in appgw_subnet range). Leave empty for dynamic allocation."
+  description = "Static private IP for the Kafka listener frontend. Must be in appgw_subnet range."
   type        = string
-  default     = ""
+  default     = "10.200.1.10"
+
+  validation {
+    condition     = var.appgw_frontend_ip != ""
+    error_message = "appgw_frontend_ip must be an explicit static private IP."
+  }
 }
 
 variable "kafka_port" {

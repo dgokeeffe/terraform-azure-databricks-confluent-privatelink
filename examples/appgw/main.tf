@@ -3,16 +3,15 @@
 # =============================================================================
 #
 # This example creates the transit architecture using:
-#   - Azure Application Gateway v2 with TCP proxy (preview)
+#   - Azure Application Gateway v2 with TCP proxy
 #   - App GW native Private Link for Databricks NCC connectivity
 #   - Private Endpoint to Confluent Cloud
 #   - Databricks NCC with Private Endpoint Rule (via REST API)
-#   - Private DNS Zone (optional, for classic compute)
 #
 # Architecture:
 #   Databricks Serverless -> NCC PE -> App GW v2 (TCP proxy) -> Confluent PE -> Kafka
 #
-# NOTE: App GW TCP proxy requires API version 2024-05-01+ and is in preview.
+# NOTE: App GW TCP proxy requires API version 2024-05-01+.
 # The azapi provider is required because azurerm does not support TCP listeners.
 #
 # =============================================================================
@@ -103,13 +102,12 @@ module "databricks_ncc" {
     databricks = databricks.account
   }
 
-  ncc_name             = "ncc-confluent-${var.location}"
-  region               = var.location
-  transit_mode         = "appgw"
-  transit_resource_id  = module.confluent_transit.appgw_id
-  confluent_cluster_id = var.confluent_cluster_id
-  confluent_region     = var.confluent_region
-  workspace_ids        = var.databricks_workspace_ids
+  ncc_name                    = "ncc-confluent-${var.location}"
+  region                      = var.location
+  transit_resource_id         = module.confluent_transit.appgw_id
+  confluent_bootstrap_servers = var.confluent_bootstrap_servers
+  confluent_ncc_domain_names  = var.confluent_ncc_domain_names
+  workspace_ids               = var.databricks_workspace_ids
 
   # For App GW mode
   databricks_account_id = var.databricks_account_id
@@ -123,24 +121,3 @@ module "databricks_ncc" {
 }
 
 # =============================================================================
-# Private DNS Zone (optional - for classic compute)
-# =============================================================================
-
-module "confluent_dns" {
-  count  = var.enable_dns_zone ? 1 : 0
-  source = "../../modules/confluent-dns"
-
-  resource_group_name  = azurerm_resource_group.confluent.name
-  location             = var.location
-  confluent_cluster_id = var.confluent_cluster_id
-  confluent_region     = var.confluent_region
-  target_ip            = module.confluent_transit.frontend_ip
-  broker_count         = var.broker_count
-
-  vnet_ids_to_link = [module.confluent_transit.vnet_id]
-  vnet_names       = ["transit-vnet"]
-
-  tags = var.tags
-
-  depends_on = [module.confluent_transit]
-}

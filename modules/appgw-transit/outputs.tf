@@ -47,7 +47,12 @@ output "appgw_name" {
 
 output "frontend_ip" {
   description = "Application Gateway frontend private IP"
-  value       = try(azapi_resource.appgw.output.properties.frontendIPConfigurations[0].properties.privateIPAddress, "dynamic - check Azure portal")
+  value       = var.appgw_frontend_ip
+}
+
+output "unused_public_ip_id" {
+  description = "Unused public IP required for Application Gateway Private Link compatibility"
+  value       = azurerm_public_ip.appgw_management.id
 }
 
 # =============================================================================
@@ -56,7 +61,7 @@ output "frontend_ip" {
 
 output "kafka_bootstrap_target_ip" {
   description = "IP address that Kafka bootstrap server FQDNs should resolve to (App GW frontend)"
-  value       = try(azapi_resource.appgw.output.properties.frontendIPConfigurations[0].properties.privateIPAddress, "dynamic - check Azure portal")
+  value       = var.appgw_frontend_ip
 }
 
 # =============================================================================
@@ -75,9 +80,12 @@ output "connection_summary" {
     }
 
     application_gateway = {
-      name = azapi_resource.appgw.name
-      id   = azapi_resource.appgw.id
-      note = "TCP proxy is in preview - requires API version 2024-05-01+"
+      name                  = azapi_resource.appgw.name
+      id                    = azapi_resource.appgw.id
+      private_frontend_ip   = var.appgw_frontend_ip
+      unused_public_ip_id   = azurerm_public_ip.appgw_management.id
+      private_link_group_id = "frontend-private"
+      note                  = "Kafka listener is private only; unused public IP exists because App Gateway Private Link is unsupported on private-only gateways."
     }
 
     next_steps = [

@@ -13,17 +13,17 @@ output "ncc_name" {
 }
 
 # =============================================================================
-# Private Endpoint Rule outputs (PLS mode only)
+# Private Endpoint Rule outputs
 # =============================================================================
 
 output "pe_rule_id" {
-  description = "Private Endpoint Rule ID (PLS mode only)"
-  value       = var.transit_mode == "pls" ? databricks_mws_ncc_private_endpoint_rule.confluent[0].rule_id : "managed-via-rest-api"
+  description = "Private Endpoint Rule ID"
+  value       = "managed-via-rest-api"
 }
 
 output "pe_rule_connection_state" {
-  description = "Private Endpoint Rule connection state (PLS mode only)"
-  value       = var.transit_mode == "pls" ? databricks_mws_ncc_private_endpoint_rule.confluent[0].connection_state : "check-account-console"
+  description = "Private Endpoint Rule connection state"
+  value       = "check-account-console"
 }
 
 output "domain_names" {
@@ -46,12 +46,7 @@ output "workspace_bindings" {
 
 output "kafka_bootstrap_servers" {
   description = "Kafka bootstrap servers connection string for Spark"
-  value       = "${local.bootstrap_fqdn}:9092"
-}
-
-output "kafka_bootstrap_fqdn" {
-  description = "Kafka bootstrap server FQDN (without port)"
-  value       = local.bootstrap_fqdn
+  value       = var.confluent_bootstrap_servers
 }
 
 # =============================================================================
@@ -64,12 +59,12 @@ output "connection_summary" {
     ncc_id           = databricks_mws_network_connectivity_config.confluent.network_connectivity_config_id
     ncc_name         = databricks_mws_network_connectivity_config.confluent.name
     region           = var.region
-    transit_mode     = var.transit_mode
-    pe_rule_id       = var.transit_mode == "pls" ? databricks_mws_ncc_private_endpoint_rule.confluent[0].rule_id : "managed-via-rest-api"
-    connection_state = var.transit_mode == "pls" ? databricks_mws_ncc_private_endpoint_rule.confluent[0].connection_state : "check-account-console"
+    transit_mode     = "appgw"
+    pe_rule_id       = "managed-via-rest-api"
+    connection_state = "check-account-console"
     domain_names     = local.all_domain_names
     workspaces       = [for b in databricks_mws_ncc_binding.confluent : b.workspace_id]
-    bootstrap_server = "${local.bootstrap_fqdn}:9092"
+    bootstrap_server = var.confluent_bootstrap_servers
   }
 }
 
@@ -80,7 +75,7 @@ output "connection_summary" {
 output "spark_kafka_options" {
   description = "Spark DataFrame options for reading from Kafka"
   value = {
-    "kafka.bootstrap.servers" = "${local.bootstrap_fqdn}:9092"
+    "kafka.bootstrap.servers" = var.confluent_bootstrap_servers
     "kafka.security.protocol" = "SASL_SSL"
     "kafka.sasl.mechanism"    = "PLAIN"
     "kafka.sasl.jaas.config"  = "org.apache.kafka.common.security.plain.PlainLoginModule required username='<API_KEY>' password='<API_SECRET>';"

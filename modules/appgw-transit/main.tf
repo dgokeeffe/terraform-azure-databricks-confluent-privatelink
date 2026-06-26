@@ -91,7 +91,7 @@ resource "azurerm_private_endpoint" "confluent" {
   tags                = local.tags
 
   private_service_connection {
-    name                              = "confluent-kafka-psc"
+    name                              = "confluent-kafka"
     private_connection_resource_alias = var.confluent_private_link_service_alias
     is_manual_connection              = true
     request_message                   = var.pe_request_message
@@ -115,10 +115,18 @@ resource "time_sleep" "wait_for_pe" {
 # =============================================================================
 # Application Gateway v2 with TCP proxy (azapi - azurerm lacks TCP support)
 #
-# NOTE: TCP listener/routing on App GW v2 requires API version 2024-05-01+
-# and the feature is in public preview. The azurerm provider does not yet
-# support TCP listeners (see hashicorp/terraform-provider-azurerm#26239).
+# NOTE: TCP listener/routing on App GW v2 requires API version 2024-05-01+.
+# The azurerm provider does not yet support TCP listeners.
 # =============================================================================
+
+resource "azurerm_public_ip" "appgw_management" {
+  name                = "${local.prefix}${var.appgw_name}-unused-public-ip"
+  location            = var.location
+  resource_group_name = var.resource_group_name
+  allocation_method   = "Static"
+  sku                 = "Standard"
+  tags                = local.tags
+}
 
 resource "azapi_resource" "appgw" {
   type      = "Microsoft.Network/applicationGateways@2024-05-01"
@@ -150,10 +158,21 @@ resource "azapi_resource" "appgw" {
         {
           name = "frontend-private"
           properties = {
-            privateIPAllocationMethod = var.appgw_frontend_ip != "" ? "Static" : "Dynamic"
-            privateIPAddress          = var.appgw_frontend_ip != "" ? var.appgw_frontend_ip : null
+            privateIPAllocationMethod = "Static"
+            privateIPAddress          = var.appgw_frontend_ip
             subnet = {
               id = local.appgw_subnet_id
+            }
+            privateLinkConfiguration = {
+              id = "/subscriptions/${data.azurerm_subscription.current.subscription_id}/resourceGroups/${var.resource_group_name}/providers/Microsoft.Network/applicationGateways/${local.appgw_full_name}/privateLinkConfigurations/privatelink-config"
+            }
+          }
+        },
+        {
+          name = "frontend-public-unused"
+          properties = {
+            publicIPAddress = {
+              id = azurerm_public_ip.appgw_management.id
             }
           }
         }
@@ -175,7 +194,7 @@ resource "azapi_resource" "appgw" {
             backendAddresses = [
               {
                 ipAddress = azurerm_private_endpoint.confluent.private_service_connection[0].private_ip_address
-              }
+              },
             ]
           }
         }
@@ -251,7 +270,8 @@ resource "azapi_resource" "appgw" {
   depends_on = [
     time_sleep.wait_for_pe,
     azurerm_subnet.appgw,
-    azurerm_subnet.appgw_privatelink
+    azurerm_subnet.appgw_privatelink,
+    azurerm_public_ip.appgw_management
   ]
 }
 

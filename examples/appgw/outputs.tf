@@ -61,10 +61,3 @@ output "spark_kafka_options" {
 }
 
 # =============================================================================
-# DNS outputs (if enabled)
-# =============================================================================
-
-output "dns_zone_id" {
-  description = "Private DNS Zone ID (if enabled)"
-  value       = var.enable_dns_zone ? module.confluent_dns[0].dns_zone_id : null
-}
